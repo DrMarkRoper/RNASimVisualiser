@@ -1,0 +1,626 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --bg-panel: #12151c;
+  --bg-raised: #1a1e28;
+  --fg: #e8ebf1;
+  --fg-muted: #8a93a6;
+  --accent: #56b4e9;
+  --border: #262b36;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+code, pre { font-family: var(--mono); }
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-columns: 1fr;
+  height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.app-header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
+.header-meta { color: var(--fg-muted); display: flex; gap: 8px; }
+.keys-hint {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: help;
+}
+/* Render-options dropdown (replaces the old schematic/atomic pair of
+   buttons). The button's visible label is the overall render mode
+   (schematic / atomic / mixed); clicking opens a popup with per-
+   component selectors. */
+.render-options {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.render-options-caption { color: var(--fg-muted); }
+.render-options-btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 100px;
+  justify-content: space-between;
+}
+.render-options-btn.open,
+.render-options-btn:hover { border-color: var(--accent); color: var(--accent); }
+.render-options-btn-label { text-transform: lowercase; }
+.render-options-btn-caret { font-size: 10px; color: var(--fg-muted); }
+
+.render-options-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  /* Wide enough to fit all three protein pills (schematic / mesh / atomic)
+     on a single line alongside their row label without wrapping. */
+  min-width: 400px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 10px 12px 12px;
+  color: var(--fg);
+  font-size: 12px;
+}
+.render-options-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.render-options-popup-header strong {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.render-options-quick { display: flex; gap: 4px; }
+.render-options-quick button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.render-options-quick button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.render-options-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 4px 0 6px;
+}
+.ro-row-label { color: var(--fg-muted); white-space: nowrap; }
+/* All five rows share a three-column grid so that schematic / mesh / atomic
+   pills line up vertically across rows.  Nucleic rows leave the mesh slot
+   as an empty `.ro-opt-spacer` so their schematic and atomic pills still
+   sit under the corresponding protein-row pills.  The popup's min-width
+   is sized so no row wraps. */
+.ro-row-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+}
+.ro-opt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--fg-muted);
+  background: transparent;
+  user-select: none;
+  white-space: nowrap;
+}
+.ro-opt.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(86, 180, 233, 0.08);
+}
+.ro-opt input { accent-color: var(--accent); margin: 0; }
+/* Invisible placeholder that occupies the 'mesh' grid cell on nucleic
+   rows so the schematic/atomic pills stay column-aligned with protein
+   rows.  Must be non-interactive and visually empty. */
+.ro-opt-spacer {
+  border-color: transparent;
+  background: transparent;
+  pointer-events: none;
+  cursor: default;
+}
+
+.render-options-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.app-main {
+  display: grid;
+  /* grid-template-columns is overridden inline to `1fr 6px <infoWidth>px`
+     so the divide is draggable; the fallback here matches the initial
+     default width for cases where the inline style is absent. */
+  grid-template-columns: 1fr 6px 320px;
+  min-height: 0;
+}
+
+.viewer-pane { position: relative; min-height: 0; min-width: 0; }
+
+/* Vertical drag handle between the 3D viewer and the info panel. */
+.pane-resizer {
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+.pane-resizer::before {
+  /* Widen the hit target beyond the visible line so it's easier to grab. */
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+}
+.pane-resizer:hover,
+.pane-resizer:active { background: var(--accent); }
+
+.viewer3d { position: absolute; inset: 0; }
+.viewer3d-canvas { position: absolute; inset: 0; }
+.viewer3d-legend {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0,0,0,0.4);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--fg);
+  z-index: 2;
+}
+.viewer3d-legend > span { display: inline-flex; align-items: center; }
+.viewer3d-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.viewer3d-reset {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1;
+}
+.viewer3d-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.viewer3d-status {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--fg);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  z-index: 2;
+}
+.viewer3d-status.error { color: #ff9090; }
+
+/* Info panel */
+.info-panel {
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.info-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.info-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--fg-muted);
+  padding: 6px 12px;
+  border-radius: 6px 6px 0 0;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.info-tab:hover { color: var(--fg); }
+.info-tab.active {
+  background: var(--bg-raised);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.info-tab-body {
+  overflow-y: auto;
+  padding: 12px 16px;
+  flex: 1;
+  min-height: 0;
+}
+.info-panel h3 {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin: 16px 0 8px;
+}
+.info-tab-body section:first-child h3 { margin-top: 0; }
+.info-panel dl { margin: 0; display: grid; grid-template-columns: 100px 1fr; row-gap: 4px; column-gap: 10px; }
+.info-panel dt { color: var(--fg-muted); }
+.info-panel dd { margin: 0; }
+.info-panel code { background: var(--bg-raised); padding: 1px 4px; border-radius: 3px; }
+.info-panel .events { margin: 0; padding-left: 16px; font-size: 12px; }
+.info-panel p { margin: 0 0 8px; line-height: 1.5; }
+.info-panel kbd {
+  display: inline-block;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.info-stub-note { color: var(--fg-muted); font-size: 12px; }
+
+/* Sequence panel */
+.sequence-pane {
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 10px 20px 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.sequence-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+.sequence-panel h3 { margin: 0; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-muted); }
+
+.seq-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+}
+.strand-toggle { display: flex; gap: 10px; color: var(--fg-muted); }
+.strand-toggle label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.strand-toggle input { accent-color: var(--accent); }
+.follow-toggle { display: flex; align-items: center; gap: 4px; color: var(--fg-muted); cursor: pointer; }
+.follow-toggle input { accent-color: var(--accent); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; margin-left: auto; }
+.legend-chip { padding: 2px 6px; border-radius: 4px; background: var(--bg-raised); }
+.legend-chip.m35 { color: #56b4e9; }
+.legend-chip.m10 { color: #009e73; }
+.legend-chip.w433 { color: #f59e0b; }
+.legend-chip.bubble { color: #e69f00; }
+.legend-chip.rna-released { color: #10b981; }
+.legend-chip.rna-hybrid   { color: #fbbf24; }
+.legend-chip.term-stem    { color: #a78bfa; }
+.legend-chip.term-utract  { color: #f472b6; }
+
+/* Horizontal-scroll monospace grid */
+.seq-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-raised);
+  border-radius: 4px;
+  /* Extra horizontal padding leaves room for the 5′/3′ strand-end labels
+     that are absolutely positioned just outside the tracks' content width. */
+  padding: 6px 3ch;
+}
+.seq-tracks {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: pre;
+  position: relative;
+}
+.seq-track {
+  display: block;
+  height: 1.25em;
+  position: relative;
+  white-space: pre;
+}
+.seq-base {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  border-radius: 2px;
+}
+.seq-base.m35    { background: rgba(86, 180, 233, 0.28); }
+.seq-base.m10    { background: rgba(0, 158, 115, 0.28); }
+.seq-base.w433   { outline: 1px solid #f59e0b; }
+.seq-base.bubble { color: #e69f00; font-style: italic; }
+.seq-base.rnap   { background: #fff; color: #000; font-weight: 700; }
+/* Terminator hairpin: purple stem arms (with matching top/bottom borders
+   so the 5′ and 3′ arms read as a pair at a glance), violet loop, pink
+   U-tract.  Colours chosen to stay readable on top of coding/template
+   colour + bubble italics.
+
+   The U-tract (and the loop) live inside the last 9 nt of the RNA on the
+   RNA row and so get painted over by `.rna-base.rna-hybrid`'s yellow
+   background. To make them survive that overlay we use `box-shadow` as
+   inset overlays (ignored by the `background` cascade) and dashed
+   borders on u-tract — they all sit above the hybrid background. */
+.seq-base.term-stem5 {
+  background: rgba(167, 139, 250, 0.22);
+  border-top: 1px solid #a78bfa;
+}
+.seq-base.term-stem3 {
+  background: rgba(167, 139, 250, 0.22);
+  border-bottom: 1px solid #a78bfa;
+}
+.seq-base.term-loop {
+  background: rgba(196, 181, 253, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.55);
+}
+.seq-base.term-utract {
+  background: rgba(244, 114, 182, 0.28);
+  box-shadow: inset 0 -2px 0 0 #f472b6;
+}
+/* When the U-tract sits under the RNA:DNA hybrid overlay, the hybrid's
+   yellow background would hide the pink fill. Re-apply the pink so both
+   pieces of information stay legible. */
+.rna-base.rna-hybrid.term-utract {
+  background: rgba(244, 114, 182, 0.35);
+}
+.rna-base.rna-hybrid.term-loop {
+  background: rgba(196, 181, 253, 0.35);
+}
+.rna-base.rna-hybrid.term-stem5,
+.rna-base.rna-hybrid.term-stem3 {
+  background: rgba(167, 139, 250, 0.35);
+}
+
+.seq-track.ruler {
+  color: var(--fg-muted);
+  font-size: 10px;
+  height: 1.1em;
+}
+.ruler-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  padding-left: 0.5ch; /* centre on the char cell */
+  white-space: nowrap;
+}
+
+.seq-track.pair { color: var(--fg-muted); opacity: 0.5; }
+.pair-tick { color: var(--fg-muted); }
+
+.seq-track.template { color: #ef4444; }
+.seq-track.coding   { color: #3b82f6; }
+
+.seq-track.rna {
+  color: #10b981;
+  font-weight: 600;
+  height: 1.25em;
+}
+
+/* Strand-end labels (5′/3′) — absolutely positioned just outside each
+   track's content width so they don't disturb the 1ch column grid. The
+   `.seq-scroll` padding reserves the visual room for them. */
+.strand-end-label {
+  position: absolute;
+  top: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  pointer-events: none;
+  line-height: 1.25em;
+}
+.strand-end-label-left  { right: 100%; padding-right: 0.4ch; }
+.strand-end-label-right { left: 100%;  padding-left: 0.4ch; }
+
+/* RNA 5′ prefix — positioned one column left of the first RNA nt. The
+   label itself is 2 characters wide; we right-align it so the ′ sits
+   flush with the right edge of that column (i.e. immediately before
+   the first transcribed base).
+   NOTE: `ch` is measured against the element's own font, so we MUST use
+   the same font-size/family as the track (13px monospace) or the label
+   drifts — it's placed with `left: <columns>ch` and relies on that unit
+   mapping to the same cell width as `.seq-base`. */
+.rna-start-label {
+  position: absolute;
+  top: 0;
+  width: 2ch;
+  transform: translateX(-1ch);
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--fg-muted);
+  pointer-events: none;
+  line-height: 1.25em;
+}
+.rna-base.rna-hybrid   { color: #fbbf24; background: rgba(251, 191, 36, 0.18); }
+.rna-base.rna-released { color: #10b981; }
+.rna-gap { color: transparent; }
+
+.rna-summary { margin-top: 4px; }
+.rna-summary h4 { margin: 0 0 4px; font-size: 12px; color: var(--fg-muted); }
+.rna-seq {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border-left: 3px solid var(--accent);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 13px;
+  max-height: 60px;
+  overflow: auto;
+}
+
+/* Timeline */
+.app-footer {
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 10px 16px 14px;
+}
+.timeline { display: flex; flex-direction: column; gap: 6px; }
+.timeline-header { display: flex; align-items: center; gap: 14px; }
+.play-btn {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 44px;
+}
+.state-chips { display: flex; gap: 6px; }
+.phase-chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #0a0a0a;
+  font-weight: 600;
+  font-size: 12px;
+}
+.frame-readout { color: var(--fg-muted); font-family: var(--mono); font-size: 12px; }
+.fps-control { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted); }
+
+.lane-group {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+.lane-label {
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+
+.timeline-bands {
+  position: relative;
+  height: 14px;
+  background: var(--bg-raised);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.lane-sigma { height: 10px; }
+.lane-rnap  { height: 14px; }
+.phase-band { position: absolute; top: 0; bottom: 0; opacity: 0.8; }
+.event-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: #fff;
+  transform: translateX(-1px);
+  pointer-events: auto;
+}
+.playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+  transform: translateX(-1px);
+  box-shadow: 0 0 4px var(--accent);
+}
+.timeline-slider { width: 100%; }
+
+/* Splash */
+.app-splash {
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  height: 100vh;
+  text-align: center;
+  color: var(--fg-muted);
+}
+.app-splash.error pre {
+  background: var(--bg-raised);
+  padding: 12px 16px;
+  border-radius: 6px;
+  max-width: 640px;
+  margin: 0 auto;
+  white-space: pre-wrap;
+  color: #ff8080;
+}

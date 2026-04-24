@@ -1,0 +1,91 @@
+/**
+ * 3Dmol.js per-chain style tables for the two render modes.
+ *
+ * In atomic mode, chain P (RNAP placeholder) and chain S (procedural σ⁷⁰)
+ * are NOT present in the geometry — the PDB model supplies them instead,
+ * so those entries are intentionally absent here.
+ */
+import type { RenderMode } from "./types";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type StyleSpec = Record<string, any>;
+
+export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
+  schematic: {
+    // Coding strand — big blue spheres.
+    A: { sphere: { color: "#3b82f6", radius: 1.2 } },
+    // Template strand — big red spheres.
+    B: { sphere: { color: "#ef4444", radius: 1.2 } },
+    // Nascent RNA — green spheres.
+    R: { sphere: { color: "#10b981", radius: 1.0 } },
+    // Backtracked RNA — translucent violet.
+    X: { sphere: { color: "#a78bfa", radius: 1.0, opacity: 0.7 } },
+    // RNAP placeholder — two big grey blobs, semi-transparent.
+    P: { sphere: { color: "#9ca3af", radius: 18, opacity: 0.35 } },
+    // W433 indole — sticks + small sphere, amber/gold.
+    W: {
+      stick: { color: "#f59e0b", radius: 0.35 },
+      sphere: { color: "#f59e0b", radius: 0.5 },
+    },
+    // Procedural σ⁷⁰ — 4 pink domain blobs connected by a line.
+    S: {
+      sphere: { color: "#ec4899", radius: 6, opacity: 0.55 },
+      line: { color: "#ec4899", linewidth: 2 },
+    },
+  },
+  atomic: {
+    // Coding strand — small spheres + line backbone trace.
+    A: {
+      sphere: { color: "#3b82f6", radius: 0.5 },
+      line: { color: "#3b82f6", linewidth: 2 },
+    },
+    B: {
+      sphere: { color: "#ef4444", radius: 0.5 },
+      line: { color: "#ef4444", linewidth: 2 },
+    },
+    R: {
+      sphere: { color: "#10b981", radius: 0.5 },
+      line: { color: "#10b981", linewidth: 2 },
+    },
+    X: {
+      sphere: { color: "#a78bfa", radius: 0.5, opacity: 0.7 },
+      line: { color: "#a78bfa", linewidth: 2 },
+    },
+    // W433 stays as stick + sphere — visible inside the PDB's protein mesh.
+    W: {
+      stick: { color: "#f59e0b", radius: 0.5 },
+      sphere: { color: "#f59e0b", radius: 0.8 },
+    },
+    // P and S are absent in atomic geometry — PDB supplies them.
+  },
+};
+
+/**
+ * Style applied to the PDB model (6ALF) in atomic mode.
+ *
+ * Chain letter convention for the 6ALF entry we fetch from RCSB:
+ *   Chains A, B       = α subunits
+ *   Chain  C          = β subunit
+ *   Chain  D          = β' subunit
+ *   Chain  E          = ω subunit
+ *   Chain  F          = σ⁷⁰    ← opacity faded by sigma70Presence
+ *   Chain  T          = template DNA    ← hidden (we draw our own)
+ *   Chain  N          = non-template DNA ← hidden
+ *
+ * If RCSB returns a revised chain mapping in the future these selectors
+ * will need re-checking; the viewer logs any chain it cannot style.
+ */
+export const PDB_PROTEIN_STYLE: StyleSpec = {
+  cartoon: { color: "spectrum", opacity: 0.85 },
+};
+
+export const PDB_SIGMA_STYLE = (presence: number): StyleSpec => ({
+  cartoon: { color: "#ec4899", opacity: Math.max(0.0, 0.9 * presence) },
+});
+
+export const PDB_HIDDEN_STYLE: StyleSpec = {};
+
+/** Chains in the PDB entry we hide because our procedural overlay covers them. */
+export const PDB_NUCLEIC_CHAINS = ["T", "N"];
+export const PDB_SIGMA_CHAINS = ["F"];
+export const PDB_PROTEIN_CHAINS = ["A", "B", "C", "D", "E"];
