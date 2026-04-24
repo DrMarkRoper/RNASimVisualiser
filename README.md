@@ -140,31 +140,3 @@ Only these milestone events are marked (pause events would be too dense):
 * abortive release
 * arrest
 
-The phase bands carry per-frame phase colour already.
-
-## Schema alignment with the Python engine
-
-`src/types/manifest.ts` mirrors `rnasim/snapshot.py::SimulationManifest` key
-for key.  If `to_dict()` changes, the zod schema here must be updated or
-validation will reject the file with a clear error.
-
-Validated in this scaffold against a real run with:
-*   450 snapshots
-*   151 bp sequence
-*   phases observed: initiation, open_complex, elongation, paused,
-    backtracked, terminated
-*   event types observed: elemental pause, GreB cleaved, abortive release,
-    promoter escape, intrinsic termination
-
-## Notes for the next session
-
-*   **Geometry milestones still to land** (see handoff): template 90° bend
-    inside the active-site cleft, coding-strand loop over the clamp and
-    re-annealing downstream, and the full procedural crab-claw mesh.
-*   **Web Worker move** — once the geometry builders get expensive, move
-    `builder.build()` off the main thread.  The `GeometryFrame` contract is
-    already cleanly serialisable (plain atom records, no functions).
-*   **Export** — PNG per-frame is a few lines against 3Dmol's `.pngURI()`.
-    MP4 recording via `MediaRecorder` on the WebGL canvas.
-*   **Atomic builder** — drop real PDB parsing into `render/atomic.ts`.  The
-    `GeometryFrame` return shape stays the same, so no change to Viewer3D.
