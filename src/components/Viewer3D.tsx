@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // @ts-ignore — 3Dmol does not ship full .d.ts files
 import * as $3Dmol from "3dmol";
 import type { SimulationManifest, Snapshot } from "../types/manifest";
+import type { Theme } from "../hooks/useTheme";
 import type {
   Atom,
   GeometryBuilder,
@@ -22,11 +23,32 @@ import {
   PDB_SIGMA_CHAINS,
   PDB_PROTEIN_CHAINS,
 } from "../render/styles";
+import {
+  getPdbHoverLabel,
+  getSchematicHoverLabel,
+  type PdbHoverAtom,
+} from "../render/pdbLabels";
 
 interface Viewer3DProps {
   manifest: SimulationManifest;
   snapshot: Snapshot;
   mode: RenderMode;
+  /** Current colour theme.  The WebGL canvas clears to --viewer-bg, which
+   *  is defined per-theme in index.css; we read the computed value via
+   *  getComputedStyle and call viewer.setBackgroundColor when it changes. */
+  theme: Theme;
+}
+
+/** Resolve the current value of --viewer-bg off the document root.  Falls
+ *  back to black if the var is unset (e.g. during a stylesheet swap).  We
+ *  intentionally re-read each time rather than caching — getComputedStyle
+ *  is cheap and it lets the viewer follow dynamic palette tweaks too. */
+function readViewerBg(): string {
+  if (typeof window === "undefined") return "black";
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--viewer-bg")
+    .trim();
+  return v || "black";
 }
 
 const PDB_ID = "6ALF";
@@ -88,7 +110,7 @@ function getPdbText(): Promise<string> {
  */
 const INITIAL_Y_ROTATION_DEG = 90;
 
-export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
+export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ReturnType<typeof $3Dmol.createViewer> | null>(null);
   // Separate model handles so atomic's PDB scaffold survives per-frame rebuilds.
@@ -96,6 +118,11 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
   const pdbModelRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const dynamicModelRef = useRef<any>(null);
+  // Handle of the most recently-added hover tooltip so we can dismiss it
+  // before drawing a new one (otherwise labels stack up as the cursor
+  // moves across subunits).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hoverLabelRef = useRef<any>(null);
 
   const [pdbError, setPdbError] = useState<string | null>(null);
   const [pdbLoading, setPdbLoading] = useState(false);
@@ -132,7 +159,7 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
   useEffect(() => {
     if (!mountRef.current) return;
     const viewer = $3Dmol.createViewer(mountRef.current, {
-      backgroundColor: "black",
+      backgroundColor: readViewerBg(),
       antialias: true,
     });
     viewerRef.current = viewer;
@@ -148,14 +175,33 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
 
     return () => {
       ro.disconnect();
-      viewer.removeAllModels?.();
-      viewer.removeAllLabels?.();
-      if (mountRef.current) mountRef.current.innerHTML = "";
+      // Defensive teardown: 3Dmol's internal rAF loop can throw on
+      // Safari when the canvas is removed while a frame is in flight.
+      // Wrapping each step prevents a cleanup error from propagating
+      // into React and blanking the page.
+      try { viewer.removeAllModels?.(); } catch (_) { /* 3Dmol cleanup */ }
+      try { viewer.removeAllLabels?.(); } catch (_) { /* 3Dmol cleanup */ }
+      try {
+        if (mountRef.current) mountRef.current.innerHTML = "";
+      } catch (_) { /* DOM mutation during teardown */ }
       viewerRef.current = null;
       pdbModelRef.current = null;
       dynamicModelRef.current = null;
+      hoverLabelRef.current = null;
     };
   }, []);
+
+  // -------------------------------------------------------- theme tracking
+  // Re-read --viewer-bg off :root whenever the theme flips and push it
+  // straight into the viewer.  setBackgroundColor updates the clear
+  // colour in place so we don't have to tear the WebGL context down.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const bg = readViewerBg();
+    viewer.setBackgroundColor?.(bg);
+    viewer.render?.();
+  }, [theme]);
 
   // ----------------------------------------------------- mode → PDB model
   // Load / unload the static PDB scaffold when the mode changes.
@@ -185,6 +231,54 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
           for (const c of PDB_SIGMA_CHAINS) {
             viewer.setStyle({ model: m, chain: c }, PDB_SIGMA_STYLE(1));
           }
+          // Hover tooltips on σ⁷⁰ regions and RNAP subunits.  3Dmol's
+          // setHoverable takes a hover-in and hover-out callback per
+          // selection; we register one selection per model so the
+          // callback handles the chain/residue → label lookup itself.
+          // (Registering a separate selector per chain would force us to
+          // juggle N label refs.)
+          viewer.setHoverable(
+            { model: m },
+            true,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (atom: PdbHoverAtom, v: any) => {
+              const text = getPdbHoverLabel(atom);
+              if (!text) return;
+              if (hoverLabelRef.current) {
+                v.removeLabel(hoverLabelRef.current);
+                hoverLabelRef.current = null;
+              }
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const a = atom as any;
+              // Read palette vars at show-time so the label follows the
+              // live theme even though this callback captured `theme`
+              // at effect-registration.
+              const rootStyle = getComputedStyle(document.documentElement);
+              const bg = rootStyle.getPropertyValue("--bg-panel").trim() || "#111";
+              const fg = rootStyle.getPropertyValue("--fg").trim() || "#fff";
+              const border = rootStyle.getPropertyValue("--border").trim() || "#555";
+              hoverLabelRef.current = v.addLabel(text, {
+                position: { x: a.x, y: a.y, z: a.z },
+                backgroundColor: bg,
+                backgroundOpacity: 0.92,
+                fontColor: fg,
+                fontSize: 12,
+                padding: 4,
+                borderThickness: 1,
+                borderColor: border,
+                inFront: true,
+              });
+              v.render();
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (_atom: PdbHoverAtom, v: any) => {
+              if (hoverLabelRef.current) {
+                v.removeLabel(hoverLabelRef.current);
+                hoverLabelRef.current = null;
+                v.render();
+              }
+            },
+          );
           // Frame the PDB scaffold and re-apply the canonical rotation —
           // without this the zoomTo resets the view and our initial rotation
           // from the per-frame prime would be lost. Reset Y rotation first
@@ -210,8 +304,12 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
       };
     }
 
-    // Leaving atomic → drop the PDB model.
+    // Leaving atomic → drop the PDB model and any lingering hover label.
     if (pdbModelRef.current) {
+      if (hoverLabelRef.current) {
+        viewer.removeLabel(hoverLabelRef.current);
+        hoverLabelRef.current = null;
+      }
       viewer.removeModel(pdbModelRef.current);
       pdbModelRef.current = null;
       viewer.render();
@@ -231,6 +329,15 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
       viewer.removeModel(dynamicModelRef.current);
       dynamicModelRef.current = null;
     }
+    // Whenever we tear down the dynamic model, any tooltip hanging off one
+    // of its atoms is now orphaned (the atom no longer exists).  Drop the
+    // ref so the schematic-mode hover handler below starts from a clean
+    // slate; otherwise a leftover label from the previous frame can stack
+    // up forever as the cursor moves across rebuilt spheres.
+    if (hoverLabelRef.current) {
+      viewer.removeLabel?.(hoverLabelRef.current);
+      hoverLabelRef.current = null;
+    }
     const model = viewer.addModel();
     model.addAtoms(atomsForThreeDmol(frame.atoms));
     dynamicModelRef.current = model;
@@ -241,6 +348,56 @@ export function Viewer3D({ manifest, snapshot, mode }: Viewer3DProps) {
     for (const [chain, style] of Object.entries(styles)) {
       viewer.setStyle({ model, chain }, style);
     }
+
+    // Hover tooltips on the *dynamic* model (RNAP body, σ⁷⁰ four-domain
+    // cartoon, W433 wedge, DNA / RNA strands).  The atomic-mode block
+    // above only registers hovers on the PDB scaffold, which leaves the
+    // schematic σ⁷⁰ / RNAP spheres unannotated — registering here means
+    // the labels work in both modes.  We re-register every frame because
+    // the dynamic model is rebuilt on every frame; setHoverable's
+    // registration is per-model and dies with the model, so re-register
+    // is required, not just nice-to-have.
+    viewer.setHoverable(
+      { model },
+      true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (atom: PdbHoverAtom, v: any) => {
+        const text = getSchematicHoverLabel(atom);
+        if (!text) return;
+        if (hoverLabelRef.current) {
+          v.removeLabel(hoverLabelRef.current);
+          hoverLabelRef.current = null;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const a = atom as any;
+        // Read palette vars at show-time so the tooltip follows the live
+        // theme even though the closure was captured at register-time.
+        const rootStyle = getComputedStyle(document.documentElement);
+        const bg = rootStyle.getPropertyValue("--bg-panel").trim() || "#111";
+        const fg = rootStyle.getPropertyValue("--fg").trim() || "#fff";
+        const border = rootStyle.getPropertyValue("--border").trim() || "#555";
+        hoverLabelRef.current = v.addLabel(text, {
+          position: { x: a.x, y: a.y, z: a.z },
+          backgroundColor: bg,
+          backgroundOpacity: 0.92,
+          fontColor: fg,
+          fontSize: 12,
+          padding: 4,
+          borderThickness: 1,
+          borderColor: border,
+          inFront: true,
+        });
+        v.render();
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (_atom: PdbHoverAtom, v: any) => {
+        if (hoverLabelRef.current) {
+          v.removeLabel(hoverLabelRef.current);
+          hoverLabelRef.current = null;
+          v.render();
+        }
+      },
+    );
 
     // σ⁷⁰ opacity on the PDB cartoon follows the presence hint.
     if (mode === "atomic" && pdbModelRef.current) {

@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { SimulationManifest, Snapshot } from "../types/manifest";
 
 interface InfoPanelProps {
   manifest: SimulationManifest;
   snapshot: Snapshot;
+  /** Opens the Load Simulation File modal.  Owned by App so the modal
+   *  itself lives above the grid instead of inside the info panel. */
+  onLoadSimulation?: () => void;
 }
 
 type InfoTab = "sim" | "info" | "help";
@@ -24,7 +27,7 @@ const TABS: Array<{ id: InfoTab; label: string }> = [
  *                mechanism diagrams, glossary).
  *   • Help     — user-facing instructions & keyboard shortcuts.
  */
-export function InfoPanel({ manifest, snapshot }: InfoPanelProps) {
+export function InfoPanel({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
   const [tab, setTab] = useState<InfoTab>("sim");
 
   return (
@@ -33,6 +36,7 @@ export function InfoPanel({ manifest, snapshot }: InfoPanelProps) {
         {TABS.map((t) => (
           <button
             key={t.id}
+            id={`info-tab-${t.id}`}
             type="button"
             role="tab"
             aria-selected={tab === t.id}
@@ -44,10 +48,39 @@ export function InfoPanel({ manifest, snapshot }: InfoPanelProps) {
         ))}
       </nav>
 
-      <div className="info-tab-body" role="tabpanel">
-        {tab === "sim"  && <SimDataTab manifest={manifest} snapshot={snapshot} />}
-        {tab === "info" && <InfoTab />}
-        {tab === "help" && <HelpTab />}
+      {/* All three tab bodies are rendered concurrently and their visibility
+          is toggled via the `hidden` attribute (display: none).  This gives
+          each tab its own scroll container, so scrolling halfway down Sim
+          Data and switching to Help no longer leaves Help scrolled by the
+          previous offset — each panel keeps its own scrollTop, and an
+          inactive tab's DOM is preserved (cheap; the trees are small). */}
+      <div
+        className="info-tab-body"
+        role="tabpanel"
+        aria-labelledby="info-tab-sim"
+        hidden={tab !== "sim"}
+      >
+        <SimDataTab
+          manifest={manifest}
+          snapshot={snapshot}
+          onLoadSimulation={onLoadSimulation}
+        />
+      </div>
+      <div
+        className="info-tab-body"
+        role="tabpanel"
+        aria-labelledby="info-tab-info"
+        hidden={tab !== "info"}
+      >
+        <InfoTab />
+      </div>
+      <div
+        className="info-tab-body"
+        role="tabpanel"
+        aria-labelledby="info-tab-help"
+        hidden={tab !== "help"}
+      >
+        <HelpTab />
       </div>
     </aside>
   );
@@ -57,11 +90,115 @@ export function InfoPanel({ manifest, snapshot }: InfoPanelProps) {
 /* Sim Data                                                           */
 /* ------------------------------------------------------------------ */
 
-function SimDataTab({ manifest, snapshot }: InfoPanelProps) {
-  const { metadata, promoter, params } = manifest;
+/**
+ * Single-line, ellipsis-clipped, selectable display of a long sequence with
+ * an inline copy-to-clipboard control.  Used for the coding-strand readout
+ * in the Sim Data tab — a typical demo sequence is 200+ nt and would blow
+ * out the info panel layout if rendered with normal wrap, so we clip with
+ * `text-overflow: ellipsis` and rely on the copy button (or native text
+ * selection) for full retrieval.
+ */
+function CopyableSequence({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = useCallback(async () => {
+    try {
+      // navigator.clipboard is available on HTTPS / localhost contexts.
+      // Fallback path uses a transient textarea + execCommand for older
+      // browsers / file:// embeds.
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      // Don't tear down the UI — surface a console warning and leave the
+      // user free to drag-select the visible portion.
+      console.warn("Copy failed:", err);
+    }
+  }, [value]);
+
+  return (
+    <div className="copyable-sequence">
+      <code
+        className="copyable-sequence-text"
+        title={value}
+        aria-label={`${label} (${value.length} characters) — drag to select`}
+      >
+        {value}
+      </code>
+      <button
+        type="button"
+        className="copy-btn"
+        onClick={onCopy}
+        title={copied ? "Copied!" : "Copy to clipboard"}
+        aria-label={copied ? "Copied" : "Copy sequence to clipboard"}
+      >
+        {/* Inline SVG clipboard icon — `currentColor` so it tracks the
+            button's text colour through theme + hover transitions. */}
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <rect
+            x="3.25"
+            y="4.25"
+            width="8.5"
+            height="9.5"
+            rx="1.25"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.25"
+          />
+          <rect
+            x="5.5"
+            y="2"
+            width="4"
+            height="2.5"
+            rx="0.6"
+            fill="currentColor"
+          />
+        </svg>
+        {copied && <span className="copy-btn-feedback">copied</span>}
+      </button>
+    </div>
+  );
+}
+
+function SimDataTab({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
+  const { metadata, promoter, params, terminator, sequence } = manifest;
+  // The terminator block is computed post-hoc on the *final* RNA, so we
+  // slice the final snapshot's transcript rather than the currently-
+  // playing one — otherwise the stem/U-tract readout would be blank
+  // until the playhead walked past the terminator.
+  const finalRna =
+    manifest.snapshots.length > 0
+      ? manifest.snapshots[manifest.snapshots.length - 1].rna_sequence
+      : "";
+  const hasUtract =
+    terminator !== undefined &&
+    terminator.u_tract_end > terminator.u_tract_start;
 
   return (
     <>
+      {onLoadSimulation && (
+        <section className="sim-data-actions">
+          <button
+            type="button"
+            className="load-sim-btn"
+            onClick={onLoadSimulation}
+            title="Replace the current simulation with one from a URL or local file"
+          >
+            Load Simulation File…
+          </button>
+        </section>
+      )}
+
       <section>
         <h3>Run</h3>
         <dl>
@@ -75,6 +212,19 @@ function SimDataTab({ manifest, snapshot }: InfoPanelProps) {
           <dd>{metadata.total_frames}</dd>
           <dt>Duration</dt>
           <dd>{metadata.total_time_s.toFixed(2)} s</dd>
+          {/* Coding strand sits under Duration as a single-line, clipped,
+              selectable readout with a copy-to-clipboard affordance.
+              "Base pairs" follows it (full label rather than the "bp"
+              abbreviation that used to live in the page header). */}
+          <dt>Sequence</dt>
+          <dd>
+            <CopyableSequence
+              value={sequence.coding_strand}
+              label="Coding strand"
+            />
+          </dd>
+          <dt>Base pairs</dt>
+          <dd>{sequence.sequence_length}</dd>
         </dl>
       </section>
 
@@ -105,6 +255,52 @@ function SimDataTab({ manifest, snapshot }: InfoPanelProps) {
           </dd>
         </dl>
       </section>
+
+      {terminator && (
+        <section>
+          <h3>Termination</h3>
+          <dl>
+            <dt>Hairpin ΔG</dt>
+            <dd>{terminator.hairpin_dg.toFixed(2)} kcal/mol</dd>
+            <dt>5′ stem</dt>
+            <dd>
+              <code>
+                {finalRna.slice(terminator.stem5_start, terminator.stem5_end)}
+              </code>{" "}
+              ({terminator.stem_len} nt)
+            </dd>
+            <dt>Loop</dt>
+            <dd>
+              <code>
+                {finalRna.slice(terminator.loop_start, terminator.loop_end)}
+              </code>{" "}
+              ({terminator.loop_len} nt)
+            </dd>
+            <dt>3′ stem</dt>
+            <dd>
+              <code>
+                {finalRna.slice(terminator.stem3_start, terminator.stem3_end)}
+              </code>
+            </dd>
+            <dt>U-tract</dt>
+            <dd>
+              {hasUtract ? (
+                <>
+                  <code>
+                    {finalRna.slice(
+                      terminator.u_tract_start,
+                      terminator.u_tract_end,
+                    )}
+                  </code>{" "}
+                  ({(terminator.u_tract_fraction * 100).toFixed(0)}% A/U)
+                </>
+              ) : (
+                <em>none detected</em>
+              )}
+            </dd>
+          </dl>
+        </section>
+      )}
 
       <section>
         <h3>Conditions</h3>

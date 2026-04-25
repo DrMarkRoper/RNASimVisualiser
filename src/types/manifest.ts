@@ -13,6 +13,7 @@ import { z } from "zod";
 /* ------------------------------------------------------------------ */
 
 export const PHASES = [
+  "approaching",   // σ+core assembling & holoenzyme descending to promoter
   "initiation",
   "open_complex",
   "scrunching",
@@ -20,6 +21,7 @@ export const PHASES = [
   "paused",
   "backtracked",
   "terminated",
+  "detaching",     // RNAP lifting off, bubble collapsing, RNA releasing
   "aborted",
 ] as const;
 
@@ -134,6 +136,13 @@ export type TerminatorInfo = z.infer<typeof TerminatorSchema>;
 /* ------------------------------------------------------------------ */
 
 export const SimulationManifestSchema = z.object({
+  // Provenance marker written by Python's SimulationManifest.to_dict.
+  // Kept optional so older snapshots.json files (pre-tag) still load, but
+  // the Load Simulation File dialog refuses blobs whose application
+  // field is present *and* not "RNASim" — and requires it for files
+  // dropped in by the user (stricter than defaults because we're opening
+  // arbitrary user input).
+  application: z.literal("RNASim").optional(),
   version: z.string(),
   metadata: MetadataSchema,
   sequence: SequenceSchema,

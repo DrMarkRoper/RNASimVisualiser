@@ -7,7 +7,41 @@
   --fg-muted: #8a93a6;
   --accent: #56b4e9;
   --border: #262b36;
+  /* Background the 3D viewer clears to. Exposed as a variable so the
+     light-theme override below can swap it without rebuilding the viewer.
+     Viewer3D reads this at mount + on theme change via getComputedStyle. */
+  --viewer-bg: #000000;
+  /* Overlay tints (legend chip, status banner, modal backdrop) — kept as
+     variables so the light theme can flip them from black-transparent to
+     white-transparent without rewriting every call site. */
+  --overlay-panel: rgba(0, 0, 0, 0.4);
+  --overlay-strong: rgba(0, 0, 0, 0.55);
+  --active-site-bg: #ffffff;
+  --active-site-fg: #000000;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Light theme — opt-in via `data-theme="light"` on <html>, written by the
+   useTheme hook.  The palette mirrors the dark one: --bg is the app
+   canvas, --bg-panel the header/rail, --bg-raised the inset tiles.  We
+   also deepen the accent (#0284c7) so blue annotations keep their
+   contrast on a near-white background — the dark-mode #56b4e9 washes out
+   badly on #f7f8fa.  Specific cell overrides (legend chip, playhead,
+   active-site cell) are grouped below so the palette stays in one place. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7fa;
+  --bg-panel: #ffffff;
+  --bg-raised: #eef1f6;
+  --fg: #1a1e28;
+  --fg-muted: #5c6472;
+  --accent: #0284c7;
+  --border: #d4d8e0;
+  --viewer-bg: #e4e7ee;
+  --overlay-panel: rgba(255, 255, 255, 0.72);
+  --overlay-strong: rgba(255, 255, 255, 0.82);
+  --active-site-bg: #111218;
+  --active-site-fg: #ffffff;
 }
 
 * { box-sizing: border-box; }
@@ -71,16 +105,32 @@ code, pre { font-family: var(--mono); }
   border-radius: 6px;
   cursor: pointer;
   font: inherit;
+  /* Keep the label optically centred under the caption by laying the
+     caret out as an absolute adornment to the right of a centred label.
+     Using flex + `justify-content: center` alone would only centre the
+     {label + caret} group, which looks offset to the left. */
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   min-width: 100px;
-  justify-content: space-between;
+  padding-right: 22px; /* leave room for the absolute caret */
 }
 .render-options-btn.open,
 .render-options-btn:hover { border-color: var(--accent); color: var(--accent); }
-.render-options-btn-label { text-transform: lowercase; }
-.render-options-btn-caret { font-size: 10px; color: var(--fg-muted); }
+.render-options-btn-label {
+  text-transform: lowercase;
+  text-align: center;
+}
+.render-options-btn-caret {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
 
 .render-options-popup {
   position: absolute;
@@ -165,14 +215,19 @@ code, pre { font-family: var(--mono); }
   background: rgba(86, 180, 233, 0.08);
 }
 .ro-opt input { accent-color: var(--accent); margin: 0; }
-/* Invisible placeholder that occupies the 'mesh' grid cell on nucleic
-   rows so the schematic/atomic pills stay column-aligned with protein
-   rows.  Must be non-interactive and visually empty. */
+/* Placeholder that occupies the 'mesh' grid cell on nucleic rows so the
+   schematic/atomic pills stay column-aligned with protein rows.  Styled
+   as a dim, non-interactive 'N/A' tag so the empty slot reads as an
+   intentional omission rather than a layout glitch. */
 .ro-opt-spacer {
   border-color: transparent;
   background: transparent;
+  color: var(--fg-muted);
+  opacity: 0.5;
   pointer-events: none;
   cursor: default;
+  font-style: italic;
+  font-size: 11px;
 }
 
 .render-options-footer {
@@ -193,7 +248,9 @@ code, pre { font-family: var(--mono); }
   min-height: 0;
 }
 
-.viewer-pane { position: relative; min-height: 0; min-width: 0; }
+/* overflow:hidden clips the absolute-positioned legend so it can never
+   bleed over into the info panel when the viewer is narrow. */
+.viewer-pane { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
 
 /* Vertical drag handle between the 3D viewer and the info panel. */
 .pane-resizer {
@@ -215,6 +272,80 @@ code, pre { font-family: var(--mono); }
 .pane-resizer:hover,
 .pane-resizer:active { background: var(--accent); }
 
+/* Collapsed-viewer state: viewer-pane shrinks to RESTORE_TAB_PX wide;
+   the restore-tab button is an absolute overlay inside the pane so that
+   Viewer3D can stay mounted (just hidden via CSS on .viewer3d-wrapper).
+   Keeping Viewer3D mounted prevents 3Dmol's rAF loop from throwing on
+   Safari when the canvas is torn down while a drag is in progress. */
+.viewer-restore-tab {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.viewer-restore-tab:hover,
+.viewer-restore-tab:focus-visible {
+  background: rgba(86, 180, 233, 0.14);
+  color: var(--accent);
+  outline: none;
+}
+.viewer-restore-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+/* Always-mounted viewer wrapper: fills viewer-pane and is hidden (not
+   removed) when the viewer is collapsed. */
+.viewer3d-wrapper {
+  position: absolute;
+  inset: 0;
+}
+
+/* Info-panel collapsed state: the info column shrinks to a thin vertical
+   tab on the RHS.  Symmetrical to the viewer-restore-tab on the LHS. */
+.app-main.info-collapsed .info-restore-tab {
+  min-width: 0;
+  min-height: 0;
+}
+.info-restore-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  font-family: var(--mono);
+  font-size: 18px;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.info-restore-tab:hover,
+.info-restore-tab:focus-visible {
+  background: rgba(86, 180, 233, 0.14);
+  color: var(--accent);
+  outline: none;
+}
+.info-restore-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .viewer3d { position: absolute; inset: 0; }
 .viewer3d-canvas { position: absolute; inset: 0; }
 .viewer3d-legend {
@@ -224,7 +355,13 @@ code, pre { font-family: var(--mono); }
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(0,0,0,0.4);
+  /* nowrap + right:8px prevents items from wrapping when the viewer is
+     narrow; the parent viewer-pane clips anything that still overflows. */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  background: var(--overlay-panel);
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 12px;
@@ -264,7 +401,7 @@ code, pre { font-family: var(--mono); }
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay-strong);
   color: var(--fg);
   padding: 6px 12px;
   border-radius: 6px;
@@ -322,9 +459,77 @@ code, pre { font-family: var(--mono); }
   margin: 16px 0 8px;
 }
 .info-tab-body section:first-child h3 { margin-top: 0; }
-.info-panel dl { margin: 0; display: grid; grid-template-columns: 100px 1fr; row-gap: 4px; column-gap: 10px; }
+.info-panel dl { margin: 0; display: grid; grid-template-columns: 100px minmax(0, 1fr); row-gap: 4px; column-gap: 10px; }
 .info-panel dt { color: var(--fg-muted); }
-.info-panel dd { margin: 0; }
+/* `min-width: 0` lets dd shrink below its intrinsic content width — needed
+   for any descendant `text-overflow: ellipsis` to actually clip rather than
+   forcing the column to grow.  The dl's `minmax(0, 1fr)` already does the
+   same at the grid-track level; we belt-and-brace here because direct
+   children of dd (e.g. flex containers) need their own min-width: 0 to
+   propagate the constraint. */
+.info-panel dd { margin: 0; min-width: 0; }
+
+/* Single-line, clipped, selectable sequence readout with inline copy
+   button.  Used for the coding strand under Run > Sequence in the Sim
+   Data tab.  Layout: code element flexes to fill, button stays a fixed
+   tile at the right edge; both inherit the theme palette. */
+.copyable-sequence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.copyable-sequence-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-raised);
+  padding: 2px 6px;
+  border-radius: 3px;
+  user-select: text;
+  cursor: text;
+}
+.copy-btn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.copy-btn:hover,
+.copy-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+.copy-btn-feedback {
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: var(--bg-panel);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--accent);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .info-panel code { background: var(--bg-raised); padding: 1px 4px; border-radius: 3px; }
 .info-panel .events { margin: 0; padding-left: 16px; font-size: 12px; }
 .info-panel p { margin: 0 0 8px; line-height: 1.5; }
@@ -415,17 +620,12 @@ code, pre { font-family: var(--mono); }
 .seq-base.m10    { background: rgba(0, 158, 115, 0.28); }
 .seq-base.w433   { outline: 1px solid #f59e0b; }
 .seq-base.bubble { color: #e69f00; font-style: italic; }
-.seq-base.rnap   { background: #fff; color: #000; font-weight: 700; }
-/* Terminator hairpin: purple stem arms (with matching top/bottom borders
-   so the 5′ and 3′ arms read as a pair at a glance), violet loop, pink
-   U-tract.  Colours chosen to stay readable on top of coding/template
-   colour + bubble italics.
-
-   The U-tract (and the loop) live inside the last 9 nt of the RNA on the
-   RNA row and so get painted over by `.rna-base.rna-hybrid`'s yellow
-   background. To make them survive that overlay we use `box-shadow` as
-   inset overlays (ignored by the `background` cascade) and dashed
-   borders on u-tract — they all sit above the hybrid background. */
+/* Terminator hairpin: purple stem arms with matching top/bottom borders
+   (the 5′ and 3′ arms read as a pair at a glance), violet loop fill,
+   pink U-tract underline.  We deliberately avoid adding a background on
+   the U-tract so the RNAP active-site white cell stays visible when it
+   crosses a U-tract column; the underline alone is enough to convey the
+   motif and survives any overlay (including the RNA:DNA hybrid). */
 .seq-base.term-stem5 {
   background: rgba(167, 139, 250, 0.22);
   border-top: 1px solid #a78bfa;
@@ -435,25 +635,19 @@ code, pre { font-family: var(--mono); }
   border-bottom: 1px solid #a78bfa;
 }
 .seq-base.term-loop {
-  background: rgba(196, 181, 253, 0.25);
-  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.55);
+  background: rgba(196, 181, 253, 0.22);
 }
 .seq-base.term-utract {
-  background: rgba(244, 114, 182, 0.28);
   box-shadow: inset 0 -2px 0 0 #f472b6;
 }
-/* When the U-tract sits under the RNA:DNA hybrid overlay, the hybrid's
-   yellow background would hide the pink fill. Re-apply the pink so both
-   pieces of information stay legible. */
-.rna-base.rna-hybrid.term-utract {
-  background: rgba(244, 114, 182, 0.35);
-}
-.rna-base.rna-hybrid.term-loop {
-  background: rgba(196, 181, 253, 0.35);
-}
-.rna-base.rna-hybrid.term-stem5,
-.rna-base.rna-hybrid.term-stem3 {
-  background: rgba(167, 139, 250, 0.35);
+/* Active site must win over every annotation background: declared last so
+   equal-specificity term-* / bubble / etc. backgrounds don't bleed over
+   the white RNAP cell.  We also bump specificity via the doubled class
+   so higher-specificity annotations (if any are added later) still lose. */
+.seq-base.rnap.rnap {
+  background: var(--active-site-bg);
+  color: var(--active-site-fg);
+  font-weight: 700;
 }
 
 .seq-track.ruler {
@@ -559,6 +753,15 @@ code, pre { font-family: var(--mono); }
   font-weight: 600;
   font-size: 12px;
 }
+/* Disabled-style chip variant.  Used by the σ⁷⁰ chip in the "released"
+   state, where the dark-grey band would render the chip's default near-
+   black label as unreadable.  Reads as muted/disabled rather than active —
+   a slightly lighter grey on the dark-grey background.  Toned down weight
+   reinforces the "no longer active" semantics. */
+.phase-chip.phase-chip-disabled {
+  color: #9ca3af;
+  font-weight: 500;
+}
 .frame-readout { color: var(--fg-muted); font-family: var(--mono); font-size: 12px; }
 .fps-control { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted); }
 
@@ -623,4 +826,289 @@ code, pre { font-family: var(--mono); }
   margin: 0 auto;
   white-space: pre-wrap;
   color: #ff8080;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sim Data — Load Simulation button + modal dialog                  */
+/* ------------------------------------------------------------------ */
+
+.sim-data-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.load-sim-btn {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.load-sim-btn:hover,
+.load-sim-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+
+/* Modal shell — backdrop full-viewport, dialog centred. The modal sits
+   above every other element; z-index has to clear the 3Dmol canvas. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.modal-dialog {
+  background: var(--bg-panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  width: min(560px, 92vw);
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 14px; }
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.modal-close:hover { color: var(--fg); background: var(--bg-raised); }
+.modal-body {
+  padding: 14px 16px 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Load Simulation dialog                                             */
+/* ------------------------------------------------------------------ */
+
+.load-manifest-dialog .muted { color: var(--fg-muted); font-weight: normal; }
+.load-source label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.load-url-row {
+  display: flex;
+  gap: 8px;
+}
+.load-url-row input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.load-url-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.load-url-row button {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.load-url-row button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.load-url-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.load-or {
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  position: relative;
+}
+.load-or::before,
+.load-or::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 20px);
+  border-top: 1px solid var(--border);
+}
+.load-or::before { left: 0; }
+.load-or::after  { right: 0; }
+
+.load-dropzone {
+  display: block;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 22px 16px;
+  text-align: center;
+  background: var(--bg-raised);
+  transition: border-color 0.12s, background 0.12s;
+}
+.load-dropzone:hover,
+.load-dropzone:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+/* Inline button that opens the OS file picker.  Styled to look like a
+ * hyperlink so it reads naturally inside the dropzone's sub-copy. */
+/* "click to browse" — a fully-rendered native file input styled to look
+   like link text.  ::file-selector-button draws "click to browse" in
+   accent colour; font-size:0 on the input collapses the browser's own
+   "No file chosen" label so only the button is visible.  No hiding,
+   no JS .click() — the user clicks the native element directly, which
+   Chrome cannot block regardless of security policy. */
+.load-browse-input {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0;        /* collapses "No file chosen" text */
+  vertical-align: baseline;
+  cursor: pointer;
+}
+.load-browse-input::file-selector-button {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;     /* restore size for the button label only */
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.load-browse-input::file-selector-button:hover { opacity: 0.8; }
+.load-browse-input:disabled { cursor: not-allowed; }
+.load-browse-input:disabled::file-selector-button {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.load-dropzone.active {
+  border-color: var(--accent);
+  background: rgba(86, 180, 233, 0.08);
+}
+.load-dropzone-main { margin: 0 0 4px; font-size: 13px; }
+.load-dropzone-sub  { margin: 0; font-size: 11px; color: var(--fg-muted); }
+.link-like {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.load-busy {
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.load-error {
+  background: rgba(255, 128, 128, 0.12);
+  border: 1px solid rgba(255, 128, 128, 0.35);
+  color: #ffb3b3;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.load-footer {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin: 0;
+}
+.load-footer p { margin: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Light-theme targeted overrides                                     */
+/*                                                                    */
+/* Most of the CSS above already reaches the right color through the  */
+/* --bg / --fg / --accent palette swap. This block is only for the    */
+/* handful of cases where a hardcoded color breaks down on white —    */
+/* e.g. the event marker on the timeline, error text on a pastel      */
+/* background, and the modal backdrop that's tuned for dark overlay. */
+/* ------------------------------------------------------------------ */
+:root[data-theme="light"] .event-marker { background: #111218; }
+:root[data-theme="light"] .app-splash.error pre { color: #b91c1c; }
+:root[data-theme="light"] .load-error {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #991b1b;
+}
+:root[data-theme="light"] .modal-backdrop {
+  background: rgba(15, 18, 24, 0.35);
+}
+:root[data-theme="light"] .legend-chip.m35 { color: #0369a1; }
+:root[data-theme="light"] .legend-chip.m10 { color: #047857; }
+:root[data-theme="light"] .legend-chip.rna-hybrid { color: #b45309; }
+:root[data-theme="light"] .seq-track.template { color: #b91c1c; }
+:root[data-theme="light"] .seq-track.coding   { color: #1d4ed8; }
+:root[data-theme="light"] .seq-track.rna      { color: #047857; }
+
+/* ------------------------------------------------------------------ */
+/* Theme toggle button (lives in app header)                          */
+/* ------------------------------------------------------------------ */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
 }

@@ -184,7 +184,13 @@ function NucleicRow({ label, value, onChange }: NucleicRowProps) {
           />
           schematic
         </label>
-        <span className="ro-opt ro-opt-spacer" aria-hidden="true" />
+        <span
+          className="ro-opt ro-opt-spacer"
+          aria-hidden="true"
+          title="Mesh rendering is not meaningful for nucleic acids"
+        >
+          N/A
+        </span>
         <label className={"ro-opt" + (value === "atomic" ? " active" : "")}>
           <input
             type="radio"

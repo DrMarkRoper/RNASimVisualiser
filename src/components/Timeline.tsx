@@ -17,24 +17,58 @@ interface TimelineProps {
 /* σ⁷⁰ state classification                                           */
 /* ------------------------------------------------------------------ */
 
-type SigmaState = "bound" | "releasing" | "released";
+/**
+ * σ⁷⁰ timeline states — more granular than simple presence:
+ *
+ *  approaching        σ⁷⁰ + core RNAP assembling and descending to promoter.
+ *                     Distinct from "bound" so the pre-DNA-contact period is
+ *                     visually identifiable.
+ *  bound              Holoenzyme on promoter; W433 not yet inserted.
+ *  w433_inserting     W433 (Trp433, σ⁷⁰ region 2.3) actively intercalating
+ *                     between −11/−12 bases (depth 0.1–0.9).
+ *  w433_intercalated  W433 fully wedged in (depth > 0.9).  Open complex fully
+ *                     formed.
+ *  releasing          Promoter escape in progress — σ⁷⁰ fading (0.1–0.9
+ *                     presence).  W433 is retracting in this window.
+ *  released           σ⁷⁰ fully dissociated from RNAP and DNA.
+ */
+type SigmaState =
+  | "approaching"
+  | "bound"
+  | "w433_inserting"
+  | "w433_intercalated"
+  | "releasing"
+  | "released";
 
 const SIGMA_COLORS: Record<SigmaState, string> = {
-  bound:     "#ec4899", // fully on holoenzyme — pink, matches 3D legend
-  releasing: "#f0abfc", // partial — lighter pink
-  released:  "#374151", // gone — dim grey
+  approaching:       "#ddd6fe", // very light violet — before DNA contact
+  bound:             "#ec4899", // hot pink — holoenzyme on promoter, W433 retracted
+  w433_inserting:    "#be185d", // deep pink/rose — W433 intercalating
+  w433_intercalated: "#831843", // dark maroon — W433 fully in, open complex
+  releasing:         "#f0abfc", // light pink-purple — σ⁷⁰ departing
+  released:          "#374151", // dim grey — σ⁷⁰ gone
 };
 
 const SIGMA_LABEL: Record<SigmaState, string> = {
-  bound:     "bound",
-  releasing: "releasing",
-  released:  "released",
+  approaching:       "approaching",
+  bound:             "bound",
+  w433_inserting:    "W433 inserting",
+  w433_intercalated: "W433 intercalated",
+  releasing:         "releasing",
+  released:          "released",
 };
 
-function sigmaStateFromPresence(p: number): SigmaState {
-  if (p >= 0.9) return "bound";
+function sigmaStateFromPresenceAndSnapshot(
+  p: number,
+  s: { phase: string; w433_depth: number },
+): SigmaState {
   if (p <= 0.1) return "released";
-  return "releasing";
+  if (p < 0.9)  return "releasing";
+  // Fully present (p ≥ 0.9)
+  if (s.phase === "approaching") return "approaching";
+  if (s.w433_depth > 0.9) return "w433_intercalated";
+  if (s.w433_depth > 0.1) return "w433_inserting";
+  return "bound";
 }
 
 /* ------------------------------------------------------------------ */
@@ -95,7 +129,10 @@ export function Timeline({
     () => getSigma70PresenceArray(manifest),
     [manifest],
   );
-  const currentSigma = sigmaStateFromPresence(sigmaPresence[frame] ?? 0);
+  const currentSigma = sigmaStateFromPresenceAndSnapshot(
+    sigmaPresence[frame] ?? 0,
+    currentSnapshot,
+  );
 
   const rnapBands = useMemo(
     () => contiguousBands<Phase>(manifest.snapshots, (s) => s.phase),
@@ -105,7 +142,7 @@ export function Timeline({
   const sigmaBands = useMemo(
     () =>
       contiguousBands<SigmaState>(manifest.snapshots, (s) =>
-        sigmaStateFromPresence(sigmaPresence[s.frame] ?? 0),
+        sigmaStateFromPresenceAndSnapshot(sigmaPresence[s.frame] ?? 0, s),
       ),
     [manifest, sigmaPresence],
   );
@@ -163,7 +200,10 @@ export function Timeline({
 
         <div className="state-chips">
           <span
-            className="phase-chip"
+            className={
+              "phase-chip" +
+              (currentSigma === "released" ? " phase-chip-disabled" : "")
+            }
             style={{ background: SIGMA_COLORS[currentSigma] }}
             title="σ⁷⁰ state"
           >
