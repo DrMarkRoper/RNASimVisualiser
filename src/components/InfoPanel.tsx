@@ -321,6 +321,23 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
       </section>
 
       <section>
+        <h3>Kinetics</h3>
+        <dl>
+          <dt>Elongation rate</dt>
+          <dd>{params.k_cat} s⁻¹</dd>
+          <dt>Abortive prob.</dt>
+          <dd>
+            {params.p_abortive_base} base,{" "}
+            {params.abortive_decay} decay / nt
+          </dd>
+          <dt>Escape length</dt>
+          <dd>{params.escape_length} nt</dd>
+          <dt>Hairpin ΔG threshold</dt>
+          <dd>{params.hairpin_dg_threshold} kcal/mol</dd>
+        </dl>
+      </section>
+
+      <section>
         <h3>Current state</h3>
         <dl>
           <dt>Position</dt>
