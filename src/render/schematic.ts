@@ -48,6 +48,16 @@ function coordToIndex(coord: number, tssIndex: number): number {
   return coord < 0 ? tssIndex + coord : tssIndex + coord - 1;
 }
 
+/**
+ * Safe backbone access — clamps the index to [0, backbone.length - 1] so a
+ * sequence where tssIndex < |coord| (very short upstream region) or a
+ * mis-configured manifest never throws "Cannot read properties of undefined".
+ */
+function safeBackboneIdx(coord: number, tssIndex: number, boneLen: number): number {
+  const raw = coordToIndex(coord, tssIndex);
+  return Math.max(0, Math.min(raw, boneLen - 1));
+}
+
 interface BaseAxisPoint {
   idx: number;           // 0-based index along coding_strand
   coord: number;         // TSS-relative position (+1, +2, ..., never 0)
@@ -252,9 +262,10 @@ class SchematicBuilder implements GeometryBuilder {
     let serial = 1;
 
     const tssIndex = manifest.sequence.tss_index;
-    const bubbleLoIdx = coordToIndex(snapshot.bubble_upstream,   tssIndex);
-    const bubbleHiIdx = coordToIndex(snapshot.bubble_downstream, tssIndex);
-    const rnapIdx = coordToIndex(snapshot.position, tssIndex);
+    const boneLen  = backbone.length;
+    const bubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, boneLen);
+    const bubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, boneLen);
+    const rnapIdx     = safeBackboneIdx(snapshot.position,          tssIndex, boneLen);
 
     const coding   = manifest.sequence.coding_strand;
     const template = manifest.sequence.template_strand;
@@ -267,7 +278,8 @@ class SchematicBuilder implements GeometryBuilder {
     const liftY = LIFT_HEIGHT_ANG * liftFactor;
 
     // During approaching / detaching, the RNAP center also shifts in Y.
-    const rnapAxisZ = backbone[Math.min(rnapIdx, backbone.length - 1)].axis[2];
+    // rnapIdx is already clamped by safeBackboneIdx above.
+    const rnapAxisZ = backbone[rnapIdx].axis[2];
     const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
     // ----------------------------------------------------------------
@@ -325,7 +337,7 @@ class SchematicBuilder implements GeometryBuilder {
     // ----------------------------------------------------------------
     if (presence > 0.02) {
       const w433TargetCoord = -11;
-      const w433Idx = coordToIndex(w433TargetCoord, tssIndex);
+      const w433Idx = safeBackboneIdx(w433TargetCoord, tssIndex, boneLen);
       const targetZ = backbone[w433Idx].axis[2];
       const depth = snapshot.w433_depth;
 
@@ -465,7 +477,7 @@ class SchematicBuilder implements GeometryBuilder {
       let prevSigmaSerial: number | null = null;
       for (let d = 0; d < SIGMA_DOMAINS.length; d++) {
         const dom = SIGMA_DOMAINS[d];
-        const domIdx = coordToIndex(dom.coord, tssIndex);
+        const domIdx = safeBackboneIdx(dom.coord, tssIndex, boneLen);
         const axisZ = backbone[domIdx].axis[2];
 
         // Bound anchor — near the coding face at this promoter coord.
