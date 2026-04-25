@@ -6,6 +6,7 @@ import { SequencePanel } from "./components/SequencePanel";
 import { InfoPanel } from "./components/InfoPanel";
 import { Viewer3D } from "./components/Viewer3D";
 import { LoadManifestDialog } from "./components/LoadManifestDialog";
+import { NewSimulationDialog, type NewSimMode } from "./components/NewSimulationDialog";
 import {
   RenderOptionsButton,
   DEFAULT_RENDER_OPTIONS,
@@ -49,6 +50,8 @@ export default function App() {
   const [viewerCollapsed, setViewerCollapsed] = useState(false);
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
+  const [newSimDialogOpen, setNewSimDialogOpen] = useState(false);
+  const [newSimMode, setNewSimMode] = useState<NewSimMode>("create");
 
   // Measured width of the .app-main grid container.  Used to clamp the
   // resize drag so the user can shrink the viewer arbitrarily close to
@@ -430,6 +433,10 @@ export default function App() {
             manifest={manifest}
             snapshot={snapshot}
             onLoadSimulation={() => setLoadDialogOpen(true)}
+            onNewSimulation={(mode) => {
+              setNewSimMode(mode);
+              setNewSimDialogOpen(true);
+            }}
           />
         )}
       </main>
@@ -454,6 +461,13 @@ export default function App() {
         open={loadDialogOpen}
         onClose={() => setLoadDialogOpen(false)}
         onLoaded={handleManifestLoaded}
+      />
+
+      <NewSimulationDialog
+        open={newSimDialogOpen}
+        mode={newSimMode}
+        manifest={manifest}
+        onClose={() => setNewSimDialogOpen(false)}
       />
     </div>
   );

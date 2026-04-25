@@ -1061,6 +1061,313 @@ code, pre { font-family: var(--mono); }
 .load-footer p { margin: 0; }
 
 /* ------------------------------------------------------------------ */
+/* New Simulation — "New ▾" dropdown in the actions bar              */
+/* ------------------------------------------------------------------ */
+
+/* The actions bar already uses display:flex — we just need the wrap
+   to be positioned so its menu can escape the flow. */
+.new-sim-wrap {
+  position: relative;
+}
+.new-sim-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.new-sim-chevron {
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.new-sim-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 140px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  z-index: 200;
+  overflow: hidden;
+  padding: 4px 0;
+}
+.new-sim-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.new-sim-menu-item:hover,
+.new-sim-menu-item:focus-visible {
+  background: var(--bg-raised);
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* New Simulation dialog                                              */
+/* ------------------------------------------------------------------ */
+
+/* Wider than LoadManifestDialog — needs room for the form grid. */
+.new-sim-dialog {
+  width: min(580px, 96vw);
+  max-height: 90vh;
+}
+.new-sim-body {
+  /* Override the default flex-column gap — sections provide their own
+     spacing via margin-top. */
+  gap: 0;
+  padding: 0;
+}
+.new-sim-body form {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Form sections ────────────────────────────────────────────────── */
+.nsf-section {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.nsf-section:last-child {
+  border-bottom: none;
+}
+.nsf-section-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
+/* ── Field rows ───────────────────────────────────────────────────── */
+.nsf-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  column-gap: 10px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+.nsf-row:last-child { margin-bottom: 0; }
+.nsf-row > label {
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding-top: 6px;
+  line-height: 1.4;
+}
+.nsf-row--error > label { color: var(--error, #ef4444); }
+
+.nsf-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Inputs inside the form inherit base styles; we add sizing overrides. */
+.nsf-row input[type="text"],
+.nsf-row input[type="number"],
+.nsf-seq-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  transition: border-color 0.12s;
+}
+.nsf-row input[type="text"]:focus,
+.nsf-row input[type="number"]:focus,
+.nsf-seq-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.nsf-row--error input[type="text"],
+.nsf-row--error input[type="number"],
+.nsf-row--error .nsf-seq-textarea {
+  border-color: var(--error, #ef4444);
+}
+
+.nsf-seq-textarea {
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  min-height: 68px;
+}
+
+/* number + unit label on one line */
+.nsf-unit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nsf-unit-row input { flex: 1; min-width: 0; }
+.nsf-unit {
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+/* NTP 2×2 grid */
+.nsf-ntp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.nsf-ntp-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nsf-ntp-cell > label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.nsf-ntp-cell--error > label { color: var(--error, #ef4444); }
+.nsf-ntp-cell input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.nsf-ntp-cell--error input { border-color: var(--error, #ef4444); }
+.nsf-ntp-cell input:focus { outline: none; border-color: var(--accent); }
+
+/* Checkbox row */
+.nsf-checkbox-wrap { padding-top: 4px; }
+.nsf-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.nsf-checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Inline error and hint text */
+.nsf-error {
+  font-size: 11px;
+  color: var(--error, #ef4444);
+  line-height: 1.4;
+}
+.nsf-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+.nsf-hint--note { color: var(--accent); }
+
+/* Summary error banner */
+.nsf-form-error {
+  padding: 7px 10px;
+  border: 1px solid var(--error, #ef4444);
+  border-radius: 5px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error, #ef4444);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+/* ── Output section ───────────────────────────────────────────────── */
+.nsf-output-section { background: var(--bg-raised); }
+.nsf-output-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.nsf-output-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.nsf-output-label {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.nsf-output-divider {
+  padding-top: 22px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.nsf-server-row {
+  display: flex;
+  gap: 6px;
+}
+.nsf-server-url {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Primary action button */
+.nsf-action-btn {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  white-space: nowrap;
+}
+.nsf-action-btn:hover:not(:disabled),
+.nsf-action-btn:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+.nsf-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nsf-action-btn--primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.nsf-action-btn--primary:hover:not(:disabled),
+.nsf-action-btn--primary:focus-visible:not(:disabled) {
+  opacity: 0.88;
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------ */
 /* Light-theme targeted overrides                                     */
 /*                                                                    */
 /* Most of the CSS above already reaches the right color through the  */

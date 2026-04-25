@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SimulationManifest, Snapshot } from "../types/manifest";
+import type { NewSimMode } from "./NewSimulationDialog";
 
 interface InfoPanelProps {
   manifest: SimulationManifest;
@@ -7,6 +8,8 @@ interface InfoPanelProps {
   /** Opens the Load Simulation File modal.  Owned by App so the modal
    *  itself lives above the grid instead of inside the info panel. */
   onLoadSimulation?: () => void;
+  /** Opens the New Simulation modal in create or clone mode. */
+  onNewSimulation?: (mode: NewSimMode) => void;
 }
 
 type InfoTab = "sim" | "info" | "help";
@@ -27,7 +30,7 @@ const TABS: Array<{ id: InfoTab; label: string }> = [
  *                mechanism diagrams, glossary).
  *   • Help     — user-facing instructions & keyboard shortcuts.
  */
-export function InfoPanel({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
+export function InfoPanel({ manifest, snapshot, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
   const [tab, setTab] = useState<InfoTab>("sim");
 
   return (
@@ -64,6 +67,7 @@ export function InfoPanel({ manifest, snapshot, onLoadSimulation }: InfoPanelPro
           manifest={manifest}
           snapshot={snapshot}
           onLoadSimulation={onLoadSimulation}
+          onNewSimulation={onNewSimulation}
         />
       </div>
       <div
@@ -170,7 +174,22 @@ function CopyableSequence({ value, label }: { value: string; label: string }) {
   );
 }
 
-function SimDataTab({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
+function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
+  // Dropdown state for the "New ▾" button.
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the dropdown when the user clicks outside it.
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setNewMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [newMenuOpen]);
   const { metadata, promoter, params, terminator, sequence } = manifest;
   // The terminator block is computed post-hoc on the *final* RNA, so we
   // slice the final snapshot's transcript rather than the currently-
@@ -186,8 +205,8 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
 
   return (
     <>
-      {onLoadSimulation && (
-        <section className="sim-data-actions">
+      <section className="sim-data-actions">
+        {onLoadSimulation && (
           <button
             type="button"
             className="load-sim-btn"
@@ -196,8 +215,53 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation }: InfoPanelProps) {
           >
             Load Simulation File…
           </button>
-        </section>
-      )}
+        )}
+
+        {onNewSimulation && (
+          <div className="new-sim-wrap" ref={newMenuRef}>
+            <button
+              type="button"
+              className="load-sim-btn new-sim-trigger"
+              onClick={() => setNewMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={newMenuOpen}
+              title="Create or clone a simulation configuration"
+            >
+              New{" "}
+              <span className="new-sim-chevron" aria-hidden="true">
+                {newMenuOpen ? "▴" : "▾"}
+              </span>
+            </button>
+
+            {newMenuOpen && (
+              <div className="new-sim-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="new-sim-menu-item"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    onNewSimulation("create");
+                  }}
+                >
+                  Create new
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="new-sim-menu-item"
+                  onClick={() => {
+                    setNewMenuOpen(false);
+                    onNewSimulation("clone");
+                  }}
+                >
+                  Clone current
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <section>
         <h3>Run</h3>
