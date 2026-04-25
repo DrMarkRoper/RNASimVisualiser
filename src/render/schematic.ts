@@ -180,12 +180,13 @@ function getPhaseRanges(manifest: SimulationManifest): PhaseRanges {
 function computeAnimationFractions(
   manifest: SimulationManifest,
   snapshot: Snapshot,
-): { liftFactor: number; assembleFraction: number } {
+): { liftFactor: number; assembleFraction: number; detachFraction: number } {
   const ranges = getPhaseRanges(manifest);
   const frame = snapshot.frame;
 
   let liftFactor = 0;
   let assembleFraction = 1;
+  let detachFraction = 0;
 
   if (snapshot.phase === "approaching" && ranges.approach) {
     const { start, end } = ranges.approach;
@@ -198,11 +199,12 @@ function computeAnimationFractions(
   if (snapshot.phase === "detaching" && ranges.detach) {
     const { start, end } = ranges.detach;
     const span = Math.max(end - start, 1);
-    liftFactor = (frame - start) / span;      // starts 0, rises to 1
+    detachFraction = (frame - start) / span;  // 0 → 1 across detach frames
+    liftFactor = detachFraction;               // RNAP rises as RNA drifts away
     assembleFraction = 1;                      // σ already gone during detach
   }
 
-  return { liftFactor, assembleFraction };
+  return { liftFactor, assembleFraction, detachFraction };
 }
 
 // -------------------------------------------------------------------------
@@ -274,7 +276,7 @@ class SchematicBuilder implements GeometryBuilder {
     const presence = getSigma70Presence(manifest, snapshot);
 
     // Animation fractions for "approaching" and "detaching" phases.
-    const { liftFactor, assembleFraction } = computeAnimationFractions(manifest, snapshot);
+    const { liftFactor, assembleFraction, detachFraction } = computeAnimationFractions(manifest, snapshot);
     const liftY = LIFT_HEIGHT_ANG * liftFactor;
 
     // During approaching / detaching, the RNAP center also shifts in Y.
@@ -366,10 +368,21 @@ class SchematicBuilder implements GeometryBuilder {
     // ----------------------------------------------------------------
     // Nascent RNA (chains R and T)
     //
-    // When σ⁷⁰ is present, the σ1.1 domain physically blocks the RNAP
-    // exit channel, so RNA cannot leave even if its length exceeds the
-    // 9-nt hybrid window.  The excess bases (5′ end) are coiled inside
-    // the RNAP body rather than threading out the exit channel.
+    // Biological note on detachment order (intrinsic termination):
+    //   The GC-rich hairpin folds in the exit channel and physically ejects
+    //   the 3′ end of the RNA from the active site.  The weak rU:dA hybrid
+    //   (U-tract) then melts and the complete transcript is released BEFORE
+    //   (or simultaneous with) RNAP dissociation from DNA.  The RNA never
+    //   remains threaded through a departing RNAP.
+    //
+    //   Rendering rule: during "detaching" the RNA anchor is fixed at the
+    //   DNA level (y = 0, z = last RNAP position) and drifts outward in −X,
+    //   while RNAP lifts independently in +Y.  The two trajectories visibly
+    //   diverge, communicating that the RNA has already been released.
+    //
+    // When σ⁷⁰ is present, the σ1.1 domain physically blocks the RNAP exit
+    // channel, so RNA cannot leave even if its length exceeds the 9-nt hybrid
+    // window.  The excess bases (5′ end) are coiled inside the RNAP body.
     //
     // Chain R — bases that exit normally (or would if not blocked):
     //   • While σ present AND rna_length > HYBRID_LEN: only the 3′
@@ -386,6 +399,16 @@ class SchematicBuilder implements GeometryBuilder {
     const hybridWindowStart = Math.max(0, rna.length - HYBRID_LEN_SCHEMATIC);
     const hasTrappedRNA = sigmaPresent && hybridWindowStart > 0;
     const armLen = 4 * rna.length;
+
+    // RNA anchor: normally tracks rnapCenter (RNA threads through RNAP).
+    // During "detaching" the RNA is already released — anchor it to the
+    // DNA-level position and drift it outward in −X so it visually separates
+    // from the lifting RNAP body.
+    const RNA_DRIFT_X = 50; // Å total lateral drift of released transcript
+    const rnaAnchor: [number, number, number] =
+      snapshot.phase === "detaching"
+        ? [rnapCenter[0] - RNA_DRIFT_X * detachFraction, 0, rnapCenter[2]]
+        : rnapCenter;
 
     // Chain T — trapped RNA coiled inside RNAP body
     if (hasTrappedRNA) {
@@ -420,9 +443,9 @@ class SchematicBuilder implements GeometryBuilder {
       for (let k = startK; k < rna.length; k++) {
         const base = rna[k];
         const t = (k - startK) / Math.max(rna.length - startK - 1, 1);
-        const x = rnapCenter[0] - t * armLen - 5;
-        const y = rnapCenter[1] + Math.sin(t * Math.PI) * 10 + 10;
-        const z = rnapCenter[2] + k * 0.8;
+        const x = rnaAnchor[0] - t * armLen - 5;
+        const y = rnaAnchor[1] + Math.sin(t * Math.PI) * 10 + 10;
+        const z = rnaAnchor[2] + k * 0.8;
         const atom: Atom = {
           elem: "P",
           x, y, z,
