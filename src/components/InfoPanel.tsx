@@ -190,6 +190,22 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: I
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [newMenuOpen]);
+
+  // Download the current manifest as a .json file.
+  const handleDownload = () => {
+    const safeName = manifest.metadata.sequence_name
+      .replace(/[^\w\-]/g, "_").slice(0, 60) || "simulation";
+    const safeTime = manifest.metadata.created_at.slice(0, 19).replace(/[^\w\-]/g, "_");
+    const filename = `${safeName}_${safeTime}.json`;
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
   const { metadata, promoter, params, terminator, sequence } = manifest;
   // The terminator block is computed post-hoc on the *final* RNA, so we
   // slice the final snapshot's transcript rather than the currently-
@@ -206,28 +222,45 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: I
   return (
     <>
       <section className="sim-data-actions">
+        {/* Load */}
         {onLoadSimulation && (
           <button
             type="button"
-            className="load-sim-btn"
+            className="sim-icon-btn"
             onClick={onLoadSimulation}
-            title="Replace the current simulation with one from a URL or local file"
+            title="Load simulation file…"
+            aria-label="Load simulation file"
           >
-            Load Simulation File…
+            {/* Folder + up-arrow (load) icon */}
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                 stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
+                 aria-hidden="true">
+              <path d="M1.5 5.5h4l1 1.5h7.5v6.5h-12.5z" />
+              <line x1="8" y1="5" x2="8" y2="10" />
+              <polyline points="5.5,7 8,4.5 10.5,7" />
+            </svg>
           </button>
         )}
 
+        {/* New ▾ dropdown */}
         {onNewSimulation && (
           <div className="new-sim-wrap" ref={newMenuRef}>
             <button
               type="button"
-              className="load-sim-btn new-sim-trigger"
+              className="sim-icon-btn new-sim-trigger"
               onClick={() => setNewMenuOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={newMenuOpen}
-              title="Create or clone a simulation configuration"
+              title="New simulation…"
+              aria-label="New simulation"
             >
-              New{" "}
+              {/* Plus icon */}
+              <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                   stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+                   aria-hidden="true">
+                <line x1="8" y1="3" x2="8" y2="13" />
+                <line x1="3" y1="8" x2="13" y2="8" />
+              </svg>
               <span className="new-sim-chevron" aria-hidden="true">
                 {newMenuOpen ? "▴" : "▾"}
               </span>
@@ -261,6 +294,24 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: I
             )}
           </div>
         )}
+
+        {/* Download */}
+        <button
+          type="button"
+          className="sim-icon-btn"
+          onClick={handleDownload}
+          title="Download current simulation as JSON"
+          aria-label="Download simulation JSON"
+        >
+          {/* Download arrow icon */}
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+               aria-hidden="true">
+            <line x1="8" y1="2" x2="8" y2="10.5" />
+            <polyline points="4.5,7.5 8,11 11.5,7.5" />
+            <line x1="2.5" y1="14" x2="13.5" y2="14" />
+          </svg>
+        </button>
       </section>
 
       <section>

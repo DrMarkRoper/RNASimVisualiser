@@ -246,9 +246,9 @@ export default function App() {
       const tag = target?.tagName;
       // Don't steal keys while the user is interacting with a slider/input.
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      // Don't steal keys while the Load Simulation dialog is open — it
-      // has its own URL field and our ← → step would fight the cursor.
-      if (loadDialogOpen) return;
+      // Don't steal keys while any dialog is open — they have their own
+      // text fields and our ← → step would fight the cursor.
+      if (loadDialogOpen || newSimDialogOpen) return;
 
       const step = e.shiftKey ? 10 : 1;
       switch (e.key) {
@@ -277,7 +277,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [totalFrames, loadDialogOpen]);
+  }, [totalFrames, loadDialogOpen, newSimDialogOpen]);
 
   if (manifestState.status === "loading") {
     return (
@@ -468,6 +468,7 @@ export default function App() {
         mode={newSimMode}
         manifest={manifest}
         onClose={() => setNewSimDialogOpen(false)}
+        onLoaded={handleManifestLoaded}
       />
     </div>
   );
