@@ -16,8 +16,15 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
     A: { sphere: { color: "#3b82f6", radius: 1.2 } },
     // Template strand — big red spheres.
     B: { sphere: { color: "#ef4444", radius: 1.2 } },
-    // Nascent RNA — green spheres.
+    // Nascent RNA — green spheres (exiting exit channel).
     R: { sphere: { color: "#10b981", radius: 1.0 } },
+    // Trapped RNA — amber/gold spheres.  These are 5′-end RNA bases that
+    // cannot exit the RNAP because σ1.1 blocks the exit channel while σ⁷⁰
+    // is still bound.  Shown coiled inside the RNAP body.
+    T: {
+      sphere: { color: "#f59e0b", radius: 1.0, opacity: 0.9 },
+      line:   { color: "#f59e0b", linewidth: 2 },
+    },
     // Backtracked RNA — translucent violet.
     X: { sphere: { color: "#a78bfa", radius: 1.0, opacity: 0.7 } },
     // RNAP placeholder — two big grey blobs, semi-transparent.
@@ -46,6 +53,11 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
     R: {
       sphere: { color: "#10b981", radius: 0.5 },
       line: { color: "#10b981", linewidth: 2 },
+    },
+    // Trapped RNA (σ-blocked) — amber in atomic mode too.
+    T: {
+      sphere: { color: "#f59e0b", radius: 0.5, opacity: 0.9 },
+      line:   { color: "#f59e0b", linewidth: 2 },
     },
     X: {
       sphere: { color: "#a78bfa", radius: 0.5, opacity: 0.7 },

@@ -28,11 +28,17 @@ import type { SimulationManifest, Snapshot, Phase } from "../types/manifest";
 const FADE_FRAMES = 12;
 
 const ESCAPE_EVENT = /promoter escape/i;
+// Phases in which σ⁷⁰ has already departed the holoenzyme.  "approaching"
+// is intentionally absent — during that phase σ⁷⁰ is actively assembling
+// with core RNAP and approaching the promoter, so presence = 1.0.
+// "detaching" is added because it follows "terminated": σ⁷⁰ was released
+// at promoter escape and is long gone by the time RNAP lifts off.
 const RELEASED_PHASES: ReadonlySet<Phase> = new Set([
   "elongation",
   "paused",
   "backtracked",
   "terminated",
+  "detaching",
   "aborted",
 ]);
 
@@ -74,7 +80,7 @@ export function computeSigma70PresenceArray(
       p = 0.0;
     }
     const phase = manifest.snapshots[i].phase;
-    if (phase === "terminated" || phase === "aborted") p = 0;
+    if (phase === "terminated" || phase === "detaching" || phase === "aborted") p = 0;
     out[i] = p;
   }
   return out;
