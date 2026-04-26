@@ -52,6 +52,8 @@ export default function App() {
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [newSimDialogOpen, setNewSimDialogOpen] = useState(false);
   const [newSimMode, setNewSimMode] = useState<NewSimMode>("create");
+  // Track where the active manifest came from (filename, URL, or server URL).
+  const [manifestSource, setManifestSource] = useState<string>("snapshots.json");
 
   // Measured width of the .app-main grid container.  Used to clamp the
   // resize drag so the user can shrink the viewer arbitrarily close to
@@ -84,8 +86,9 @@ export default function App() {
   /** Handle a successful load from the dialog: swap the manifest, reset
    *  playback/UI to their starting state, and bump the viewer key so
    *  the 3D view re-primes at the new sequence's default framing. */
-  const handleManifestLoaded = (manifest: SimulationManifest) => {
+  const handleManifestLoaded = (manifest: SimulationManifest, source: string) => {
     manifestCtrl.setManifest(manifest);
+    setManifestSource(source);
     setFrame(0);
     setPlaying(false);
     setRenderOptions(DEFAULT_RENDER_OPTIONS);
@@ -432,6 +435,7 @@ export default function App() {
           <InfoPanel
             manifest={manifest}
             snapshot={snapshot}
+            source={manifestSource}
             onLoadSimulation={() => setLoadDialogOpen(true)}
             onNewSimulation={(mode) => {
               setNewSimMode(mode);

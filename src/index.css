@@ -832,9 +832,18 @@ code, pre { font-family: var(--mono); }
 /* Sim Data — Load Simulation button + modal dialog                  */
 /* ------------------------------------------------------------------ */
 
+/* Filename readout in the Run section — allow wrapping so long names
+   don't overflow the narrow info panel. */
+.sim-filename {
+  font-size: 0.72rem;
+  word-break: break-all;
+  color: var(--fg-muted);
+}
+
 .sim-data-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);

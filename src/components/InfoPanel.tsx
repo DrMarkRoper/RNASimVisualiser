@@ -5,6 +5,8 @@ import type { NewSimMode } from "./NewSimulationDialog";
 interface InfoPanelProps {
   manifest: SimulationManifest;
   snapshot: Snapshot;
+  /** Where this manifest came from — filename, URL, or server URL. */
+  source?: string;
   /** Opens the Load Simulation File modal.  Owned by App so the modal
    *  itself lives above the grid instead of inside the info panel. */
   onLoadSimulation?: () => void;
@@ -30,7 +32,7 @@ const TABS: Array<{ id: InfoTab; label: string }> = [
  *                mechanism diagrams, glossary).
  *   • Help     — user-facing instructions & keyboard shortcuts.
  */
-export function InfoPanel({ manifest, snapshot, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
+export function InfoPanel({ manifest, snapshot, source, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
   const [tab, setTab] = useState<InfoTab>("sim");
 
   return (
@@ -66,6 +68,7 @@ export function InfoPanel({ manifest, snapshot, onLoadSimulation, onNewSimulatio
         <SimDataTab
           manifest={manifest}
           snapshot={snapshot}
+          source={source}
           onLoadSimulation={onLoadSimulation}
           onNewSimulation={onNewSimulation}
         />
@@ -174,7 +177,7 @@ function CopyableSequence({ value, label }: { value: string; label: string }) {
   );
 }
 
-function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
+function SimDataTab({ manifest, snapshot, source, onLoadSimulation, onNewSimulation }: InfoPanelProps) {
   // Dropdown state for the "New ▾" button.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const newMenuRef = useRef<HTMLDivElement>(null);
@@ -321,6 +324,12 @@ function SimDataTab({ manifest, snapshot, onLoadSimulation, onNewSimulation }: I
           <dd>{metadata.sequence_name}</dd>
           <dt>Created</dt>
           <dd>{new Date(metadata.created_at).toLocaleString()}</dd>
+          {source && (
+            <>
+              <dt>File</dt>
+              <dd><code className="sim-filename">{source}</code></dd>
+            </>
+          )}
           <dt>Seed</dt>
           <dd>{metadata.random_seed ?? "—"}</dd>
           <dt>Frames</dt>

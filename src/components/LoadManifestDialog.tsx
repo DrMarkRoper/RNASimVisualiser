@@ -4,7 +4,8 @@ import { parseManifest, type SimulationManifest } from "../types/manifest";
 interface LoadManifestDialogProps {
   open: boolean;
   onClose: () => void;
-  onLoaded: (manifest: SimulationManifest) => void;
+  /** Called with the parsed manifest and the source string (filename or URL). */
+  onLoaded: (manifest: SimulationManifest, source: string) => void;
 }
 
 /**
@@ -84,7 +85,7 @@ export function LoadManifestDialog({
     return null;
   };
 
-  const finishLoad = (manifest: SimulationManifest) => {
+  const finishLoad = (manifest: SimulationManifest, source: string) => {
     // Close the dialog first so it is fully unmounted before the
     // manifest-swap cascade fires (setViewerKey tears down Viewer3D,
     // which on Safari can throw when pointer-capture / WebGL teardown
@@ -94,7 +95,7 @@ export function LoadManifestDialog({
     onClose();
     requestAnimationFrame(() => {
       try {
-        onLoaded(manifest);
+        onLoaded(manifest, source);
       } catch (e) {
         // Dialog is already closed; log rather than trying to setState
         // on the unmounted component.
@@ -149,7 +150,7 @@ export function LoadManifestDialog({
     }
     try {
       const manifest = parseManifest(raw);
-      finishLoad(manifest);
+      finishLoad(manifest, source);
     } catch (e) {
       // zod errors can be verbose — surface just the first issue's path+message.
       const msg = (() => {

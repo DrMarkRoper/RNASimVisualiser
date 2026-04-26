@@ -30,7 +30,7 @@ interface NewSimulationDialogProps {
   manifest: SimulationManifest;
   onClose: () => void;
   /** Called when the user loads a completed server-run into the viewer. */
-  onLoaded?: (manifest: SimulationManifest) => void;
+  onLoaded?: (manifest: SimulationManifest, source: string) => void;
 }
 
 // Default values matching Python KineticParams defaults.
@@ -397,7 +397,7 @@ export function NewSimulationDialog({
       if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching simulation file.`);
       const raw  = await resp.json();
       const mfst = parseManifest(raw);
-      onLoaded(mfst);
+      onLoaded(mfst, sendResult.url);
       onClose();
     } catch (e) {
       setSendError(e instanceof Error ? e.message : "Failed to load simulation.");
