@@ -396,6 +396,14 @@ code, pre { font-family: var(--mono); }
   border-color: var(--accent);
   color: var(--accent);
 }
+/* `active` modifier — applied when a toggle-style button is in its
+   "on" state (e.g. the Labels toggle next to Reset view).  Inverts
+   foreground/background so it visually pops as enabled. */
+.viewer3d-reset.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
 .viewer3d-status {
   position: absolute;
   top: 8px;

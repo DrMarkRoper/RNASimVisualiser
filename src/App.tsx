@@ -407,6 +407,7 @@ export default function App() {
               manifest={manifest}
               snapshot={snapshot}
               mode={mode}
+              options={renderOptions}
               theme={theme}
             />
           </div>

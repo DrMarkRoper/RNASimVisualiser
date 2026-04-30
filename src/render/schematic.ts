@@ -7,12 +7,15 @@
  * Scene components (this file):
  *   • B-form double helix for both strands, upstream + downstream of bubble
  *   • Single-stranded coding & template strands inside the bubble
- *   • RNAP body: procedural crab-claw as two large-radius spheres
+ *   • RNAP body: five-subunit mesh — α₂ (chains Y, Z), β (Q), β′ (K), ω (O)
+ *     with on-canvas labels.  Replaces the previous two-sphere placeholder.
  *   • W433 indole ring as 10 atoms, lerped by snapshot.w433_depth
  *   • Nascent RNA thread emerging from the exit channel
  *   • Trapped RNA (chain T): RNA bases inside RNAP that cannot exit because
  *     the σ1.1 domain blocks the exit channel while σ⁷⁰ is still bound.
  *     Shown in amber alongside the normal RNA.
+ *   • σ⁷⁰ four-region mesh on chain S (resi 1..6, multi-atom regions for
+ *     σ4 / σ3 / σ2 / σ1.1) with on-canvas region labels.
  *
  * Animations driven by snapshot.phase:
  *   "approaching"  — σ⁷⁰ domains converge from spread positions (assembly)
@@ -25,8 +28,9 @@
  *   4. Coding strand loop over the RNAP clamp & downstream re-annealing
  *   7. Backtracked RNA in secondary channel when backtrack_steps > 0
  */
-import type { Atom, GeometryBuilder, GeometryFrame } from "./types";
+import type { Atom, GeometryBuilder, GeometryFrame, MeshLabel } from "./types";
 import type { SimulationManifest, Snapshot } from "../types/manifest";
+import type { RenderOptions } from "../components/RenderOptionsButton";
 import { getSigma70Presence } from "../utils/sigma";
 
 // B-form helix geometry (standard values).
@@ -208,27 +212,192 @@ function computeAnimationFractions(
 }
 
 // -------------------------------------------------------------------------
-// σ⁷⁰ domain definitions
+// RNAP core subunit layout (α₂ββ′ω) — schematic mode only.
+//
+// The body is centred on rnapCenter = (0, liftY, rnapAxisZ).  Each subunit
+// is a sphere (or two for the α dimer) at a fixed offset relative to that
+// centre.  Atomic mode uses the 6ALF cartoon directly and ignores all this.
+//
+// Chain letters are chosen to be unique within the schematic dynamic model
+// (which already uses A=coding, B=template, R=RNA, T=trapped, X=backtrack,
+// P=RNAP placeholder, W=W433, S=σ).  They have no relationship to PDB chain
+// conventions in 6ALF, where A/B/C/D/E mean the canonical subunits.
+//
+// Visual rationale: a five-element mesh that reads as "core RNAP" without
+// requiring atomic accuracy.  The two large opposing spheres (β top, β′
+// bottom) form the cleft the DNA passes through; the α dimer sits behind
+// the cleft on the assembly platform; ω is tucked under β′.
 // -------------------------------------------------------------------------
 
-/**
- * σ⁷⁰ has four structural domains that contact DNA and RNAP at known
- * positions.  Positions are TSS-relative so the domains track the promoter.
- */
-interface SigmaDomain {
+/** Bounding-region helper — local coordinates relative to rnapCenter. */
+interface SubunitDef {
+  /** Single-character chain identifier (must be unique in schematic dyn model). */
+  chain: string;
+  /** Residue index within the chain — used for hover-label disambiguation. */
+  resi: number;
+  /** Short on-canvas label (kept compact: "α I", "β'", …). */
+  label: string;
+  /** Centre offset relative to rnapCenter, in Å. */
+  offset: [number, number, number];
+  /** Sphere radius in Å (used both for styling and label-anchor placement). */
+  radius: number;
+  /** Hex colour for the sphere (mirrored in styles.ts). */
+  color: string;
+}
+
+const RNAP_SUBUNITS: SubunitDef[] = [
+  // α dimer — assembly platform on the back side of the cleft.  Two copies
+  // of the same protein; placed symmetrically along Z so they read as a
+  // dimer.  Lighter / cooler than β & β′ to push them visually backwards.
+  { chain: "Y", resi: 1, label: "α I",  offset: [-12, -3, -12], radius: 7,  color: "#cbd5e1" },
+  { chain: "Z", resi: 1, label: "α II", offset: [-12, -3,  12], radius: 7,  color: "#94a3b8" },
+
+  // β subunit — upper jaw of the cleft (lobe + flap).  The downstream DNA
+  // passes through the gap between this and β′ in real RNAP; here it sits
+  // above the helix axis (y = 0) so the existing strand spheres at y ± 10
+  // visually thread between β and β′.
+  { chain: "Q", resi: 1, label: "β",    offset: [  0, 22,   0], radius: 15, color: "#64748b" },
+
+  // β′ subunit — lower jaw / clamp / bridge helix / Mg²⁺ active site.  Drawn
+  // a touch larger and darker than β so the Mg-active-site half of the cleft
+  // reads as the "business end".
+  { chain: "K", resi: 1, label: "β'",   offset: [  0,-22,   0], radius: 16, color: "#475569" },
+
+  // ω subunit — small β′ folding chaperone, tucked behind/below.
+  { chain: "O", resi: 1, label: "ω",    offset: [-14,-12,  -3], radius: 4,  color: "#1e293b" },
+];
+
+// -------------------------------------------------------------------------
+// σ⁷⁰ — legacy four-domain blob (chain S, resi 1..4).
+//
+// Used when `options.sigma === "schematic"` — preserves the original simple
+// representation: one sphere per domain, connected by a line.  Each domain
+// has its own `assemblySpread` so they visibly converge during approach;
+// kept as-is for the legacy view.  The newer "mesh" mode below uses a
+// different chain (M) and moves σ as a single rigid body.
+// -------------------------------------------------------------------------
+
+interface LegacySigmaDomain {
   label: string;
   coord: number;          // TSS-relative position on coding strand
   boundOffset: [number, number]; // (dy, dx) relative to helix axis at coord
-  // Pre-assembly spread offset: where the domain floats before σ+core join.
-  // Large values → domain starts far from RNAP body, converges to boundOffset.
   assemblySpread: [number, number]; // (dy_extra, dx_extra) added when assembly=0
 }
 
-const SIGMA_DOMAINS: SigmaDomain[] = [
+const LEGACY_SIGMA_DOMAINS: LegacySigmaDomain[] = [
   { label: "s4",  coord: -35, boundOffset: [28,  4],  assemblySpread: [30, 40] },
   { label: "s3",  coord: -22, boundOffset: [32,  0],  assemblySpread: [50, 20] },
   { label: "s2",  coord: -10, boundOffset: [28, -4],  assemblySpread: [40, -30] },
   { label: "s11", coord:  -2, boundOffset: [20, -8],  assemblySpread: [20, -50] },
+];
+
+// -------------------------------------------------------------------------
+// σ⁷⁰ — four-region mesh (chain M, resi 1..6).
+//
+// Used when `options.sigma === "mesh"`.  Each region is one or more atoms
+// on chain "M" (kept distinct from the legacy chain "S" so each chain owns
+// its own colorscheme without conflict).
+//
+// Region layout (TSS-relative coords match the SequencePanel labelling):
+//   σ4    — recognises -35 hexamer via HTH motif (two close spheres).
+//   σ3    — spacer / extended -10 (one sphere between σ4 and σ2).
+//   σ2    — recognises -10 hexamer; region 2.3 is the W433 melt wedge.
+//           Two spheres: 2.4 recognition + 2.3 melt-wedge anchor.
+//   σ1.1  — autoinhibitory NTD; sits *inside* the RNAP cleft when bound,
+//           occluding the main channel.  Anchored to rnapCenter rather than
+//           to a coding-strand coord (the others bind DNA directly).
+//
+// Biological correction (vs. legacy mode): σ⁷⁰ is a *single polypeptide*,
+// not a quaternary assembly of four parts.  The legacy mode lets each
+// region "drift in" with its own per-region spread vector, which reads
+// (incorrectly) as four pieces snapping together.  The mesh mode instead
+// applies a single uniform translation (SIGMA_APPROACH_OFFSET on entry,
+// SIGMA_RELEASE_OFFSET on exit) so the whole molecule moves as a rigid
+// body — consistent with how the RNAP subunits are arranged at fixed
+// offsets relative to rnapCenter.
+//
+// Hover labels on chain M are resolved off `resi` in pdbLabels.ts.
+// -------------------------------------------------------------------------
+
+/**
+ * Pre-assembly offset for the whole σ⁷⁰ molecule (uniform across regions).
+ * During the first 40 % of the "approaching" frames σ enters from this
+ * offset and converges onto its bound pose, holding its rigid 4-region
+ * shape throughout the translation.
+ */
+const SIGMA_APPROACH_OFFSET: [number, number, number] = [-15, 70, -25];
+
+/**
+ * Released-pose offset (uniform across regions).  When σ⁷⁰ leaves the
+ * holoenzyme on promoter escape it translates as a single rigid body.
+ */
+const SIGMA_RELEASE_OFFSET: [number, number, number] = [40, 78, 5];
+
+/** Anchor strategy — region 1.1 sits inside RNAP, the others sit on DNA. */
+type SigmaAnchor = { kind: "promoter"; coord: number } | { kind: "rnap" };
+
+interface SigmaAtomDef {
+  /** Stable resi for hover lookup (1..6 in build order; see pdbLabels.ts). */
+  resi: number;
+  /** Region this atom belongs to ("4", "3", "2", "1.1"). */
+  region: "4" | "3" | "2" | "1.1";
+  /** Where the region anchors when σ is bound. */
+  anchor: SigmaAnchor;
+  /** Bound offset relative to the anchor (dx, dy, dz) in Å. */
+  boundOffset: [number, number, number];
+  /**
+   * Marks the atom whose position drives the on-canvas region label, when
+   * the region has multiple atoms.  Exactly one per region carries this flag.
+   */
+  labelAnchor?: boolean;
+  /** Region label text (only on the labelAnchor atom). */
+  label?: string;
+}
+
+const SIGMA_ATOMS: SigmaAtomDef[] = [
+  // -- Region 4 (HTH on -35) -------------------------------------------------
+  {
+    resi: 1, region: "4",
+    anchor: { kind: "promoter", coord: -35 },
+    boundOffset: [4, 26, 0],
+    labelAnchor: true, label: "σ4 (-35)",
+  },
+  {
+    resi: 2, region: "4",
+    anchor: { kind: "promoter", coord: -34 },
+    boundOffset: [4, 30, 0],
+  },
+
+  // -- Region 3 (spacer / extended -10) -------------------------------------
+  {
+    resi: 3, region: "3",
+    anchor: { kind: "promoter", coord: -22 },
+    boundOffset: [0, 32, 0],
+    labelAnchor: true, label: "σ3",
+  },
+
+  // -- Region 2 (recognises -10; 2.3 W433 wedge) ----------------------------
+  {
+    resi: 4, region: "2",
+    anchor: { kind: "promoter", coord: -10 },
+    boundOffset: [-4, 28, 0],
+    labelAnchor: true, label: "σ2 (-10)",
+  },
+  {
+    resi: 5, region: "2",
+    anchor: { kind: "promoter", coord: -12 },
+    boundOffset: [-2, 26, 0],
+  },
+
+  // -- Region 1.1 (autoinhibitory NTD inside RNAP cleft) --------------------
+  // Anchored on rnapCenter, not on a promoter coord.  When σ is bound, this
+  // sphere sits *inside* the RNAP body (occluding the main channel).
+  {
+    resi: 6, region: "1.1",
+    anchor: { kind: "rnap" },
+    boundOffset: [-2, 0, 4],
+    labelAnchor: true, label: "σ1.1",
+  },
 ];
 
 // -------------------------------------------------------------------------
@@ -258,7 +427,11 @@ const INDOLE_TEMPLATE: Array<{ name: string; elem: string; x: number; y: number;
 class SchematicBuilder implements GeometryBuilder {
   readonly mode = "schematic" as const;
 
-  build(manifest: SimulationManifest, snapshot: Snapshot): GeometryFrame {
+  build(
+    manifest: SimulationManifest,
+    snapshot: Snapshot,
+    options: RenderOptions,
+  ): GeometryFrame {
     const backbone = computeBackbone(manifest);
     const atoms: Atom[] = [];
     let serial = 1;
@@ -325,13 +498,70 @@ class SchematicBuilder implements GeometryBuilder {
     }
 
     // ----------------------------------------------------------------
-    // RNAP body (chain P, residues 1–2) — two large spheres.
-    // Lifted by liftY during "approaching" and "detaching".
+    // RNAP body — branched explicitly on all three options.rnap values.
+    //
+    //   "schematic" → legacy two-Fe-sphere placeholder on chain P, no
+    //                 labels.  The original pre-mesh visual.
+    //
+    //   "mesh"      → five-subunit mesh on chains Y / Z / Q / K / O
+    //                 (αI, αII, β, β′, ω) with one on-canvas label
+    //                 per subunit.
+    //
+    //   "atomic"    → procedural geometry suppressed.  Two cases:
+    //                 • Overall mode is "atomic" (all components are
+    //                   atomic): atomic.ts strips procedural protein
+    //                   chains and the 6ALF PDB cartoon supplies the
+    //                   subunits via chains A/B/C/D/E.
+    //                 • Overall mode is "schematic" (mixed): the PDB
+    //                   isn't loaded, so per-component atomic in mixed
+    //                   mode isn't yet supported — fall back to the
+    //                   legacy two-blob placeholder so the user still
+    //                   sees a body.  TODO: when selective PDB loading
+    //                   lands, render only chains A/B/C/D/E here.
+    //
+    // The whole assembly lifts together by liftY during "approaching" /
+    // "detaching" in any branch.
     // ----------------------------------------------------------------
-    atoms.push(
-      { elem: "Fe", x: 0, y:  25 + liftY, z: rnapAxisZ, resn: "RPA", resi: 1, chain: "P", serial: serial++, atomName: "CA" },
-      { elem: "Fe", x: 0, y: -25 + liftY, z: rnapAxisZ, resn: "RPA", resi: 2, chain: "P", serial: serial++, atomName: "CA" },
-    );
+    const labels: MeshLabel[] = [];
+    const emitLegacyRnap = () => {
+      atoms.push(
+        { elem: "Fe", x: 0, y:  25 + liftY, z: rnapAxisZ, resn: "RPA", resi: 1, chain: "P", serial: serial++, atomName: "CA" },
+        { elem: "Fe", x: 0, y: -25 + liftY, z: rnapAxisZ, resn: "RPA", resi: 2, chain: "P", serial: serial++, atomName: "CA" },
+      );
+    };
+    if (options.rnap === "mesh") {
+      for (const su of RNAP_SUBUNITS) {
+        const [dx, dy, dz] = su.offset;
+        const sx = rnapCenter[0] + dx;
+        const sy = rnapCenter[1] + dy;
+        const sz = rnapCenter[2] + dz;
+        atoms.push({
+          elem: "C",
+          x: sx, y: sy, z: sz,
+          resn: "RNP",
+          resi: su.resi,
+          chain: su.chain,
+          serial: serial++,
+          atomName: "CA",
+        });
+        // Label anchored just above the top of the sphere so it doesn't
+        // overlap with the geometry.  Y is the "up" screen axis after the
+        // canonical 90° camera rotation.
+        labels.push({
+          id: `subunit:${su.chain}`,
+          text: su.label,
+          position: [sx, sy + su.radius + 3, sz],
+          opacity: 1,
+        });
+      }
+    } else if (options.rnap === "schematic") {
+      emitLegacyRnap();
+    } else {
+      // options.rnap === "atomic" — fall through to the legacy placeholder
+      // when overall mode is schematic (atomic.ts strips it when overall
+      // mode is atomic; PDB chains A/B/C/D/E supply the body in that case).
+      emitLegacyRnap();
+    }
 
     // ----------------------------------------------------------------
     // W433 indole (chain W) — only while σ⁷⁰ is attached.
@@ -482,64 +712,155 @@ class SchematicBuilder implements GeometryBuilder {
     }
 
     // ----------------------------------------------------------------
-    // σ⁷⁰ four-domain cartoon (chain S)
+    // σ⁷⁰ — branched explicitly on all three options.sigma values.
     //
-    // During "approaching":
-    //   • "assembly" sub-animation (first 40 % of frames): domains start
-    //     spread far apart (pre-assembly) and converge onto the RNAP body.
-    //   • Remainder: domains at bound positions, whole complex lifted by liftY.
+    //   "schematic" → legacy four-domain blob on chain S (resi 1..4,
+    //                 one sphere per domain).  Each domain has its own
+    //                 per-domain `assemblySpread`, preserving the
+    //                 original "regions converging onto the body"
+    //                 animation verbatim.
     //
-    // During normal phases (presence > 0.02):
-    //   • Bound positions track the promoter on the coding strand.
-    //   • On promoter escape: lerp toward released positions (+x, +y).
+    //   "mesh"      → four-region mesh on chain M (resi 1..6 — see
+    //                 SIGMA_ATOMS).  Moves as a *rigid body*: a single
+    //                 SIGMA_APPROACH_OFFSET / SIGMA_RELEASE_OFFSET
+    //                 applies to every region, consistent with σ⁷⁰
+    //                 being one polypeptide.  Each region contributes
+    //                 one on-canvas label that fades with σ presence.
     //
-    // Released positions are the same as before; they stay offscreen once
-    // σ⁷⁰ has departed.
+    //   "atomic"    → procedural geometry suppressed.
+    //                 • Overall mode = atomic: atomic.ts strips chains
+    //                   S and M; PDB chain F supplies σ⁷⁰ with the
+    //                   existing presence-driven cartoon fade.
+    //                 • Overall mode = schematic (mixed): fall back to
+    //                   the legacy four-domain blob so the user still
+    //                   sees σ⁷⁰.  TODO: when selective PDB loading
+    //                   lands, render only PDB chain F here.
+    //
+    // All branches are gated by `presence > 0.02` so once σ has
+    // departed (presence ≈ 0) nothing is drawn.  liftY is applied
+    // uniformly so σ rides with RNAP during approach / detach.
     // ----------------------------------------------------------------
     if (presence > 0.02) {
-      let prevSigmaSerial: number | null = null;
-      for (let d = 0; d < SIGMA_DOMAINS.length; d++) {
-        const dom = SIGMA_DOMAINS[d];
-        const domIdx = safeBackboneIdx(dom.coord, tssIndex, boneLen);
-        const axisZ = backbone[domIdx].axis[2];
+      if (options.sigma === "mesh") {
+        // -- Mesh mode: rigid-body σ on chain M -------------------------
+        let prevSigmaSerial: number | null = null;
+        for (const sa of SIGMA_ATOMS) {
+          // Resolve anchor point (in scene coords, before assemble/release).
+          let anchorX = 0, anchorZ = 0;
+          if (sa.anchor.kind === "promoter") {
+            const idx = safeBackboneIdx(sa.anchor.coord, tssIndex, boneLen);
+            anchorZ = backbone[idx].axis[2];
+          } else {
+            // Anchored on RNAP body (σ1.1 sits inside the cleft).
+            anchorX = rnapCenter[0];
+            anchorZ = rnapCenter[2];
+          }
 
-        // Bound anchor — near the coding face at this promoter coord.
-        const boundY = dom.boundOffset[0];
-        const boundX = dom.boundOffset[1];
+          // Bound position = anchor + per-region boundOffset.
+          const boundX = anchorX + sa.boundOffset[0];
+          const boundY = sa.boundOffset[1];
+          const boundZ = anchorZ + sa.boundOffset[2];
 
-        // Released pose — drifts up and lateral after promoter escape.
-        const releasedY = 75 + d * 3;
-        const releasedX = 35 + d * 6;
+          // Pre-assembly = bound + UNIFORM σ-wide approach offset.  Same
+          // vector for every region → σ holds its rigid shape during the
+          // approach translation, instead of regions drifting together
+          // from per-region spread vectors.
+          const spreadX = boundX + SIGMA_APPROACH_OFFSET[0];
+          const spreadY = boundY + SIGMA_APPROACH_OFFSET[1];
+          const spreadZ = boundZ + SIGMA_APPROACH_OFFSET[2];
 
-        // Assembly animation: domains start spread and converge onto bound.
-        const spreadY = dom.assemblySpread[0];
-        const spreadX = dom.assemblySpread[1];
-        // assembleX/Y is the lerp between spread-start and bound, driven by assembleFraction.
-        const preAssembleX = boundX + spreadX;
-        const preAssembleY = boundY + spreadY;
-        const assembledX = boundX * assembleFraction + preAssembleX * (1 - assembleFraction);
-        const assembledY = boundY * assembleFraction + preAssembleY * (1 - assembleFraction);
+          // Assembly lerp: spread → bound as assembleFraction goes 0 → 1.
+          const assembledX = boundX * assembleFraction + spreadX * (1 - assembleFraction);
+          const assembledY = boundY * assembleFraction + spreadY * (1 - assembleFraction);
+          const assembledZ = boundZ * assembleFraction + spreadZ * (1 - assembleFraction);
 
-        // Presence lerp — shifts assembled position toward released when fading.
-        const x = assembledX * presence + releasedX * (1 - presence);
-        const y = (assembledY * presence + releasedY * (1 - presence)) + liftY;
-        const z = axisZ;
+          // Released = bound + UNIFORM σ-wide release offset.  Again the
+          // same vector for every region so σ leaves as a rigid body.
+          const releasedX = boundX + SIGMA_RELEASE_OFFSET[0];
+          const releasedY = boundY + SIGMA_RELEASE_OFFSET[1];
+          const releasedZ = boundZ + SIGMA_RELEASE_OFFSET[2];
 
-        const atom: Atom = {
-          elem: "C",
-          x, y, z,
-          resn: "SIG",
-          resi: d + 1,
-          chain: "S",
-          serial: serial++,
-          atomName: dom.label.toUpperCase(),
-        };
-        if (prevSigmaSerial !== null) {
-          atom.bonds = [prevSigmaSerial];
-          atom.bondOrder = [1];
+          // Presence lerp: assembled → released as presence goes 1 → 0.
+          const x = assembledX * presence + releasedX * (1 - presence);
+          const y = (assembledY * presence + releasedY * (1 - presence)) + liftY;
+          const z = assembledZ * presence + releasedZ * (1 - presence);
+
+          const atom: Atom = {
+            elem: "C",
+            x, y, z,
+            resn: "SIG",
+            resi: sa.resi,
+            chain: "M",
+            serial: serial++,
+            atomName: `R${sa.region}`,
+          };
+          if (prevSigmaSerial !== null) {
+            atom.bonds = [prevSigmaSerial];
+            atom.bondOrder = [1];
+          }
+          prevSigmaSerial = atom.serial;
+          atoms.push(atom);
+
+          if (sa.labelAnchor && sa.label) {
+            labels.push({
+              id: `sigma:${sa.region}`,
+              text: sa.label,
+              position: [x, y + 7, z],
+              opacity: presence,
+            });
+          }
         }
-        prevSigmaSerial = atom.serial;
-        atoms.push(atom);
+      } else {
+        // -- "schematic" or "atomic" — emit legacy four-domain blob.
+        //
+        // For options.sigma === "atomic" while overall mode is mixed,
+        // we render the legacy procedural σ as a placeholder until
+        // selective PDB loading is implemented (see block-level comment
+        // at the top of the σ⁷⁰ section above).  When overall mode is
+        // atomic, atomic.ts strips chain S and PDB chain F supplies the
+        // cartoon, so this code path is invisible in that case.
+        let prevSigmaSerial: number | null = null;
+        for (let d = 0; d < LEGACY_SIGMA_DOMAINS.length; d++) {
+          const dom = LEGACY_SIGMA_DOMAINS[d];
+          const domIdx = safeBackboneIdx(dom.coord, tssIndex, boneLen);
+          const axisZ = backbone[domIdx].axis[2];
+
+          // Bound anchor — near the coding face at this promoter coord.
+          const boundY = dom.boundOffset[0];
+          const boundX = dom.boundOffset[1];
+
+          // Released pose — drifts up and lateral after promoter escape.
+          const releasedY = 75 + d * 3;
+          const releasedX = 35 + d * 6;
+
+          // Per-domain assembly spread (legacy behaviour preserved).
+          const spreadY = dom.assemblySpread[0];
+          const spreadX = dom.assemblySpread[1];
+          const preAssembleX = boundX + spreadX;
+          const preAssembleY = boundY + spreadY;
+          const assembledX = boundX * assembleFraction + preAssembleX * (1 - assembleFraction);
+          const assembledY = boundY * assembleFraction + preAssembleY * (1 - assembleFraction);
+
+          const x = assembledX * presence + releasedX * (1 - presence);
+          const y = (assembledY * presence + releasedY * (1 - presence)) + liftY;
+          const z = axisZ;
+
+          const atom: Atom = {
+            elem: "C",
+            x, y, z,
+            resn: "SIG",
+            resi: d + 1,
+            chain: "S",
+            serial: serial++,
+            atomName: dom.label.toUpperCase(),
+          };
+          if (prevSigmaSerial !== null) {
+            atom.bonds = [prevSigmaSerial];
+            atom.bondOrder = [1];
+          }
+          prevSigmaSerial = atom.serial;
+          atoms.push(atom);
+        }
       }
     }
 
@@ -547,6 +868,7 @@ class SchematicBuilder implements GeometryBuilder {
 
     return {
       atoms,
+      labels,
       hints: { rnapCenter, viewDistance, sigma70Presence: presence },
     };
   }

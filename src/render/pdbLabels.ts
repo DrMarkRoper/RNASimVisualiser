@@ -27,9 +27,21 @@ export interface PdbHoverAtom {
  *   B — template-strand DNA spheres
  *   R — nascent RNA spheres
  *   X — backtracked RNA spheres
- *   P — RNAP body (two big grey blobs)
+ *   T — trapped RNA (σ-blocked)
  *   W — W433 indole (10-atom indole ring)
- *   S — σ⁷⁰ four-domain cartoon (resi 1..4 = s4 / s3 / s2 / s1.1)
+ *
+ *   P — legacy RNAP placeholder (rendered when options.rnap === "schematic")
+ *   Y — RNAP α subunit I       (RpoA1, assembly platform)         ┐
+ *   Z — RNAP α subunit II      (RpoA2, assembly platform)         │
+ *   Q — RNAP β subunit         (RpoB, lobe + flap)                ├ rendered
+ *   K — RNAP β′ subunit        (RpoC, clamp + Mg²⁺ active site)   │ when
+ *   O — RNAP ω subunit         (RpoZ, β′ folding chaperone)       ┘ options.rnap === "mesh"
+ *
+ *   S — σ⁷⁰ legacy four-domain blob (resi 1..4 = s4 / s3 / s2 / s11)
+ *       rendered when options.sigma === "schematic".
+ *   M — σ⁷⁰ four-region mesh (resi 1..6, see SIGMA_ATOMS) rendered when
+ *       options.sigma === "mesh".  Single rigid body — atoms move
+ *       together via SIGMA_APPROACH_OFFSET / SIGMA_RELEASE_OFFSET.
  *
  * The PDB and schematic chain alphabets overlap (A/B), so we cannot reuse
  * `getPdbHoverLabel` for the dynamic model — chain "A" means α-subunit in
@@ -38,13 +50,18 @@ export interface PdbHoverAtom {
 export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
   const { chain, resi } = atom;
   switch (chain) {
-    case "P":
-      return "RNA polymerase (RNAP)";
+    // -- RNAP subunits (mesh mode) ------------------------------------------
+    case "Y": return "RNAP α subunit I — RpoA1, assembly platform / αCTD UP-element contact";
+    case "Z": return "RNAP α subunit II — RpoA2, assembly platform / αCTD UP-element contact";
+    case "Q": return "RNAP β subunit — lobe & protrusion (upper cleft jaw)";
+    case "K": return "RNAP β′ subunit — clamp, bridge helix, Mg²⁺ active site";
+    case "O": return "RNAP ω subunit — β′ folding chaperone";
+
+    // -- RNAP legacy two-blob placeholder (schematic mode) ------------------
+    case "P": return "RNA polymerase (RNAP)";
+
+    // -- σ⁷⁰ legacy four-domain blob (schematic mode) -----------------------
     case "S":
-      // σ⁷⁰ domains land at resi 1..4 in build order (see SIGMA_DOMAINS in
-      // render/schematic.ts).  Default falls back to the bare σ⁷⁰ label so
-      // a hover on a connecting line segment without a numeric resi still
-      // resolves to something meaningful.
       switch (resi) {
         case 1: return "σ⁷⁰ Region 4 — −35 hexamer recognition";
         case 2: return "σ⁷⁰ Region 3 — spacer / promoter contact";
@@ -52,6 +69,26 @@ export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
         case 4: return "σ⁷⁰ Region 1.1 — main channel";
         default: return "σ⁷⁰";
       }
+
+    // -- σ⁷⁰ four-region mesh (mesh mode, resi 1..6 from SIGMA_ATOMS) -------
+    case "M":
+      switch (resi) {
+        case 1:
+        case 2:
+          return "σ⁷⁰ Region 4 — −35 hexamer recognition (HTH motif)";
+        case 3:
+          return "σ⁷⁰ Region 3 — spacer / extended-10 contacts";
+        case 4:
+          return "σ⁷⁰ Region 2.4 — −10 hexamer recognition";
+        case 5:
+          return "σ⁷⁰ Region 2.3 — −10 DNA melting (W433 wedge anchor)";
+        case 6:
+          return "σ⁷⁰ Region 1.1 — autoinhibitory NTD, occludes the main channel";
+        default:
+          return "σ⁷⁰";
+      }
+
+    // -- Other dynamic-model elements ---------------------------------------
     case "W":
       return "Trp433 — σ⁷⁰ region 2.3 melt wedge";
     case "A":

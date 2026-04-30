@@ -147,8 +147,10 @@ export function RenderOptionsButton({ options, onChange }: Props) {
           </div>
 
           <footer className="render-options-footer">
-            Per-component modes are UI stubs — the 3D viewer still renders
-            from the overall mode until the per-component renderers land.
+            σ⁷⁰ and RNAP support schematic / mesh independently.  Per-component
+            atomic only takes effect when *all* components are atomic — the
+            6ALF cartoon then supplies them.  Nucleic acid per-component picks
+            are stubs pending the bent-DNA geometry rewrite.
           </footer>
         </div>
       )}
