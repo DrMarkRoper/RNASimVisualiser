@@ -48,38 +48,45 @@ const HYBRID_LEN_SCHEMATIC = 9;
 const LIFT_HEIGHT_ANG = 90; // Å above normal Y-position
 
 // -------------------------------------------------------------------------
-// Bent-DNA geometry (Phase B).
+// Bubble geometry (Phase B, revised 2026-05-01 against publications.md R1).
 //
-// The schematic helix is no longer a straight tube.  Inside the bubble the
-// duplex executes a quarter-circle bend (90°) of fixed radius around the
-// RNAP body, with the two strands taking *different* paths: the coding
-// strand peels off the helix axis and arcs over the RNAP body (the "wrap"
-// over the β′ clamp), the template strand threads through the active-site
-// cleft.  Outside the bubble the strands re-pair on the standard B-helix.
+// The upstream and downstream duplex segments are now drawn STRAIGHT and
+// COLLINEAR (along +Z), matching the Santangelo & Artsimovitch (2011)
+// Figure 1 schematic and the Vassylyev 2007 / Kang 2017 cryo-EM
+// structures: the global double-helix axis does not kink at the
+// elongation complex.  The "90° bend" referred to in the literature is
+// a *template-strand sharp turn at the active site*, internal to the
+// RNAP body — not a bend in the upstream / downstream duplex.
 //
-// The bend is in the Y-Z plane (rotation around +X).  Upstream tangent is
-// +Z, downstream tangent is −Y.  After the canonical camera rotation
-// (INITIAL_Y_ROTATION_DEG = 90° around +Y in Viewer3D) this maps to
-// upstream-rightward and downstream-going-downward on screen — fully
-// visible in the screen plane.  The downstream DNA passes through the β′
-// subunit volume (β′ at y = −22, downstream DNA descends from y = 0 to
-// y < −R), which is the *biologically* correct view of the β′ clamp
-// closing over downstream DNA.  Coding-strand wrap inside the bubble
-// arcs *upward* (positive Y) so the strand visibly clears the β subunit
-// at y = +22 — the "wrap over the clamp" visual the user requested.
+// Inside the bubble the two strands take different paths:
+//   • Coding (non-template) strand bulges *upward* over the β′-clamp
+//     (β′ at +Y in this orientation — see RNAP_SUBUNITS below).  This is
+//     the strand "exposed on the surface" in the Figure 1 caption.
+//   • Template strand dips *downward* into the active-site cleft (toward
+//     β at −Y).  The template's sharp turn at the active site is the
+//     literature's 90° template bend; in the schematic we approximate it
+//     by giving the template a small inward Y dip rather than rendering
+//     two explicit 90° vertices.
 //
-// Numerical constants are sourced from `docs/dna_path_geometry.md` —
-// see that document for citations (Vassylyev 2007, Kang 2017, Murakami
-// 2013, PDB 6ALF).  The constants here are the "compiled" values; if any
-// of them get re-tuned, update the doc to match.
+// During scrunching the bubble's *physical Z extent* stays constant
+// (held by RNAP) while bubble_size grows — this packs more bases into
+// the same Z range, so each base's spacing along the bubble shrinks.
+// Compression emerges naturally from the
+// `t = (i − bubbleLoIdx) / bubble_size` parameterisation.
+//
+// Numerical constants are documented in `docs/dna_path_geometry.md`,
+// with bibliography entries in `publications.md`.
 // -------------------------------------------------------------------------
 
-const BEND_ANGLE = Math.PI / 2;      // 90° quarter turn (rad)
-const BEND_RADIUS = 25;              // Å — helix-axis arc radius at the bubble
-const CODING_WRAP_OFFSET = 18;       // Å — outward radial bulge of coding strand
-const TEMPLATE_PASS_OFFSET = -4;     // Å — inward radial offset of template strand
+const CODING_WRAP_OFFSET = 22;       // Å — upward bulge of coding strand at bubble midpoint
+const TEMPLATE_DIP_OFFSET = 6;       // Å — downward dip of template strand at bubble midpoint
 const RNA_EXIT_Y_OFFSET = 28;        // Å — RNA exit anchor lift above DNA axis
 const RNA_EXIT_X_OFFSET = -5;        // Å — RNA exit anchor pulled back from rnapCenter
+// Physical Z extent of the open-complex bubble — held roughly constant
+// by RNAP body geometry.  At standard B-helix rise (3.4 Å/bp) this fits
+// 13 bp at natural spacing; during scrunching the same extent holds 18+
+// bp, so each base spacing decreases (the renderer's scrunching effect).
+const BUBBLE_PHYSICAL_WIDTH = 13 * RISE_PER_BP;
 
 // Map a TSS-relative coordinate to a strand index along the full helix.
 function coordToIndex(coord: number, tssIndex: number): number {
@@ -112,24 +119,26 @@ interface BaseAxisPoint {
 }
 
 /**
- * Helix-axis path under the bent-DNA model.
+ * Helix-axis path under the straight-duplex / template-bend-inside-RNAP
+ * model (revised 2026-05-01 against publications.md R1, R2, R3).
  *
- * The path is piecewise:
- *   • upstream of bubble — straight along +Z, anchored so the bubble's
- *     upstream edge sits at the start of the bend arc;
- *   • bubble — quarter-circle bend of radius BEND_RADIUS around rnapCenter,
- *     parameterised by t = (i − bubbleLoIdx) / bubble_size so any number of
- *     bases compresses to fit (this is what implements scrunching: the
- *     bubble physically holds a fixed arc length, so as bubble_size grows
- *     the bases pack closer together);
- *   • downstream of bubble — straight along +X, anchored so the bubble's
- *     downstream edge sits at the end of the bend arc.
+ * Both upstream and downstream duplex segments lie on the same straight
+ * +Z axis at Y = 0.  No global bend in the helix axis.
  *
- * Scrunching anchor: during phase === "scrunching", rnapCenter is pinned
- * to the TSS axis (z = 0) regardless of `snapshot.position`, because σ⁷⁰
- * holds the upstream DNA edge in place while DNA is reeled in.  In all
- * other phases rnapCenter slides with `position` along the upstream +Z axis
- * (i.e. the bend itself translates along the DNA as RNAP elongates).
+ * Inside the bubble the strands take different paths via `strandPosition`:
+ *   • coding strand bulges +Y over the β′-clamp (exposed surface);
+ *   • template strand dips −Y into the active-site cleft (the "template
+ *     sharp turn" at the active site is approximated as a Y dip rather
+ *     than two explicit 90° vertices, which would be much more code for
+ *     an effectively-equivalent visual).
+ *
+ * Scrunching: bubble Z extent is held at BUBBLE_PHYSICAL_WIDTH regardless
+ * of bubble size, so as `bubble_size` grows the per-base spacing along
+ * the bubble shrinks.  Bubble Z range is anchored at the bubble's
+ * upstream edge (held by σ⁷⁰ during scrunching, slides with the bubble
+ * during elongation), so the upstream duplex stays stationary frame-to-
+ * frame and the downstream duplex slides only with `bubble_upstream` (no
+ * dependence on `snapshot.position`).
  */
 function computeBackbone(
   manifest: SimulationManifest,
@@ -143,71 +152,26 @@ function computeBackbone(
   const bubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
   const bubbleSize  = Math.max(1, bubbleHiIdx - bubbleLoIdx);
 
-  // Whether the DNA actually bends this frame.  Three rules:
-  //   • approaching → no bubble (bubble_upstream == bubble_downstream),
-  //     so hasBubble naturally falls through to false.
-  //   • detaching → the engine animates `bubble_downstream` closing one
-  //     base at a time, so the bubble has 1..13 bases for ~14 frames.
-  //     Rendering the bend across this animation makes DNA bases that
-  //     were "inside bubble" gradually shift to "downstream of bubble"
-  //     positions (Y drops from 0 → −25 → far negative), reading as the
-  //     DNA "sliding down" until it snaps back to straight at the last
-  //     frame.  The biology is "RNAP lifts off → DNA re-anneals" — once
-  //     RNAP is dissociating, the duplex can be drawn as straight, so we
-  //     force hasBubble = false for the entire detaching phase.
-  //   • everything else → hasBubble follows whether the bubble has
-  //     bases (bubbleHiIdx > bubbleLoIdx).
+  // Same bubble-active gate as the previous bent model:
+  //   • approaching → bubble_upstream == bubble_downstream (no bubble)
+  //   • detaching   → engine animates bubble closed; we treat the entire
+  //                   detach as "no bubble" so the duplex doesn't squirm
+  //                   as bases trickle out frame-by-frame
+  //   • elsewhere   → real bubble
   const hasBubble =
     bubbleHiIdx > bubbleLoIdx && snapshot.phase !== "detaching";
 
-  // The DNA bend is anchored at the bubble's upstream edge — the position
-  // σ⁷⁰ holds during initiation and the position the upstream DNA flows
-  // into as RNAP elongates.  Deriving this from bubble_upstream rather
-  // than from `position` makes the upstream DNA genuinely stationary in
-  // scene coordinates (each upstream base has the same z regardless of
-  // `position`), and gives scrunching the correct biology for free:
-  // during scrunching `bubble_upstream` is pinned at −11 by σ, so the
-  // bend doesn't move while extra bases pile into the bubble.
-  //
-  // rnapZ is the z-coordinate at which the bend starts AND the
-  // z-coordinate of the RNAP body anchor (rnapCenter).  The bend's
-  // geometric centre is offset from rnapCenter by (0, −R, 0) — see the
-  // bend-frame block below.
-  const rnapZ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
-
-  // Bend frame: quarter-circle arc in the Y-Z plane.  The bend *centre*
-  // sits BELOW the RNAP body — at (0, −R, rnapZ) — so the upstream DNA
-  // can stay on the standard helix axis (Y = 0) and the bend curves
-  // downward through the body cleft.
-  //
-  //   bend centre  C  = (0, −R, rnapZ)
-  //   v1 = +Ŷ      (centre → bend start direction)
-  //   v2 = +Ẑ      (centre → bend end direction)
-  //
-  //   Position(θ) = C + R · (cos(θ) · Ŷ + sin(θ) · Ẑ)
-  //               = (0, −R + R · cos(θ),  rnapZ + R · sin(θ))
-  //   Tangent(θ)  = (0,        −sin(θ),       cos(θ))
-  //   Radial(θ)   = (0,         cos(θ),       sin(θ))   (= centre→point unit, "outward")
-  //
-  // At θ = 0  : position = (0, 0, rnapZ), tangent +Ẑ — bubble upstream edge.
-  //             Upstream DNA continues backward (−Z) at constant Y = 0,
-  //             matching the pre-bend straight-helix scene exactly.  This
-  //             means the upstream duplex *doesn't jump* in Y when the
-  //             bubble opens or closes ("approaching" / "detaching" frames
-  //             render at the same upstream Y as elongation frames).
-  // At θ = π/2: position = (0, −R, rnapZ + R), tangent −Ŷ — bubble
-  //             downstream edge.  Downstream DNA continues along −Y,
-  //             exiting *below* the bend.  RNAP β′ at Y = −22 (radius 16)
-  //             envelops the bend exit (which sits at Y = −25), giving the
-  //             "β′ clamp closes over the downstream DNA" picture.
-  //
-  // The RNAP body itself stays at rnapCenter = (0, 0, rnapZ) — the same
-  // anchor it had pre-Phase-B — so all the per-subunit and per-σ-region
-  // offsets continue to work without retuning.  The DNA bend curves
-  // through the body cleft, with the coding-strand wrap (radial bulge
-  // plus +Y lift in strandPosition) arcing *over* β at Y = +22.
-  const bendStart: [number, number, number] = [0, 0, rnapZ];
-  const bendEnd:   [number, number, number] = [0, -BEND_RADIUS, rnapZ + BEND_RADIUS];
+  // Z-coordinate of the bubble's upstream edge — anchors the bubble in
+  // scene coordinates.  Stationary during scrunching (σ holds
+  // bubble_upstream pinned at −11), slides with bubble_upstream during
+  // elongation.  Upstream duplex bases at i < bubbleLoIdx have axis Z
+  // that depends on i alone, so they're frame-stationary.
+  const bubbleStartZ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
+  // Physical bubble end: a fixed Z offset downstream of the start.  This
+  // is what implements scrunching — bubbleEndZ doesn't depend on
+  // bubble_size, only on bubble_upstream, so as the engine adds bases to
+  // the bubble during initiation they pack into the same Z extent.
+  const bubbleEndZ = bubbleStartZ + BUBBLE_PHYSICAL_WIDTH;
 
   const out: BaseAxisPoint[] = [];
   for (let i = 0; i < len; i++) {
@@ -216,57 +180,35 @@ function computeBackbone(
     const twist = i * TWIST_PER_BP;
 
     let axis: [number, number, number];
-    let tangent: [number, number, number];
-    let radial: [number, number, number];
+    const tangent: [number, number, number] = [0, 0, 1];
+    const radial:  [number, number, number] = [0, 1, 0];
     let melted = false;
 
     if (!hasBubble) {
-      // No bubble → no bend.  Render the entire duplex as a single
-      // straight B-helix along +Z at the standard axis Y = 0, exactly
-      // matching the pre-bend visual for "approaching" and "detaching"
-      // phases.
+      // No bubble → straight B-helix everywhere, axis Y = 0.
       const z = (i - tssIndex) * RISE_PER_BP;
       axis = [0, 0, z];
-      tangent = [0, 0, 1];
-      radial = [0, 1, 0];
     } else if (i < bubbleLoIdx) {
-      // Upstream of bubble — straight along +Z at Y = 0.  Z is a function
-      // of base index alone (not snapshot.position), so the upstream
-      // duplex stays *stationary* in scene coordinates as RNAP elongates.
+      // Upstream of bubble — stationary helix axis at Y = 0.
       const z = (i - tssIndex) * RISE_PER_BP;
       axis = [0, 0, z];
-      tangent = [0, 0, 1];
-      // Radial = outward from bend centre = +Ŷ throughout the upstream
-      // straight section (matches the bend's θ = 0 radial).  Note that
-      // since the bend centre is at (0, −R, ·), points on the upstream
-      // axis at (0, 0, z) are at +R*Ŷ from the bend centre, hence
-      // radial = +Ŷ.
-      radial = [0, 1, 0];
     } else if (i > bubbleHiIdx) {
-      // Downstream of bubble — straight along −Y, anchored at bend end.
-      // The downstream duplex slides with the bend (so a given downstream
-      // base does shift in scene coordinates between frames as RNAP
-      // elongates — see the trade-off discussion in
-      // docs/dna_path_geometry.md).
+      // Downstream of bubble — straight along +Z, anchored at bubbleEndZ.
+      // Downstream duplex bases shift slightly in Z as bubble_upstream
+      // moves (i.e. the engine reels DNA into the body during scrunching
+      // and elongation), but they stay co-linear with the upstream
+      // duplex, so the entire visible scene reads as a single straight
+      // double-helix that has a "bubble" opened in the middle of it.
       const offset = (i - bubbleHiIdx) * RISE_PER_BP;
-      axis = [bendEnd[0], bendEnd[1] - offset, bendEnd[2]];
-      tangent = [0, -1, 0];
-      // Radial at θ = π/2 = +Ẑ.  Holding it constant for the downstream
-      // straight section keeps the helix wrap consistent across the
-      // bubble downstream boundary.
-      radial = [0, 0, 1];
+      axis = [0, 0, bubbleEndZ + offset];
     } else {
-      // Inside bubble — point on the quarter-circle arc.
-      // Bend centre at (0, −R, rnapZ); position offset = R·(cos(θ), sin(θ))
-      // in (Ŷ, Ẑ).
+      // Inside bubble — bases packed along Z from bubbleStartZ to
+      // bubbleEndZ, with strand-specific Y excursions added by
+      // strandPosition (coding +Y bulge, template −Y dip).
       melted = true;
       const t = (i - bubbleLoIdx) / bubbleSize;
-      const θ = t * BEND_ANGLE;
-      const c = Math.cos(θ);
-      const s = Math.sin(θ);
-      axis = [0, -BEND_RADIUS + BEND_RADIUS * c, rnapZ + BEND_RADIUS * s];
-      tangent = [0, -s, c];
-      radial = [0, c, s];
+      const z = bubbleStartZ + t * (bubbleEndZ - bubbleStartZ);
+      axis = [0, 0, z];
     }
 
     out.push({ idx: i, coord, axis, twist, tangent, radial, melted });
@@ -277,30 +219,24 @@ function computeBackbone(
 /**
  * Strand position for a backbone point.
  *
- * Outside the bubble (paired duplex):
- *   Standard B-helix offset around the helix axis, expressed in the
- *   local (tangent, radial, binormal) frame so the two strands wrap
- *   correctly around the bent path.  Binormal here is the cross
- *   product tangent × radial, which is +Y for the upstream straight
- *   section and stays +Y for the entire bend (since the bend is in
- *   the X-Z plane).
+ * Outside the bubble (paired duplex): standard B-helix wrap in the
+ * (X, Y) plane around the +Z axis.
  *
  * Inside the bubble (separated strands):
- *   • Coding strand  (strandSign = +1): bulges OUTWARD by
- *       CODING_WRAP_OFFSET · sin(π · t) along the radial direction,
- *       producing the "wraps over RNAP body" arc.  Also lifted in +Y
- *       so it visibly clears the β subunit (y = +22).
- *   • Template strand (strandSign = −1): pushed INWARD by
- *       TEMPLATE_PASS_OFFSET · sin(π · t) along the radial direction,
- *       threading through the active-site cleft.  Stays close to y = 0.
+ *   • Coding strand  (+1): arcs *upward* — Y peaks at
+ *       +CODING_WRAP_OFFSET (= 22 Å) at the bubble midpoint.  This is
+ *       the strand "exposed on the surface" of RNAP, wrapping over the
+ *       β′-clamp at y = +22 (see RNAP_SUBUNITS — β′ now sits on top
+ *       per Santangelo 2011 Fig 1, publications.md R1).
+ *   • Template strand (−1): dips *downward* — Y trough at
+ *       −TEMPLATE_DIP_OFFSET (= −6 Å), threading through the active-
+ *       site cleft toward β at y = −22.  The literature's "template
+ *       90° turn at the active site" is approximated by this Y dip
+ *       rather than rendered as two explicit 90° vertices.
  *
- *   The sin(π · t) envelope is zero at the bubble boundaries so each
- *   strand re-anneals smoothly to the upstream / downstream B-helix
- *   without a visible kink.
- *
- *   `bubbleLoIdx` / `bubbleHiIdx` are passed in so the bubble-relative
- *   parameter t is available without re-deriving it from the snapshot
- *   on every call.
+ *   Both excursions are gated by a sin(π · t) envelope so the strands
+ *   re-anneal smoothly to the upstream / downstream B-helix at the
+ *   bubble boundaries.
  */
 function strandPosition(
   pt: BaseAxisPoint,
@@ -311,25 +247,12 @@ function strandPosition(
   const [ax, ay, az] = pt.axis;
   const phase = strandSign === 1 ? pt.twist : pt.twist + Math.PI;
 
-  // Local frame: tangent (along path), radial (out from bend centre),
-  // binormal (perpendicular to bend plane = tangent × radial).
-  const [tx, ty, tz] = pt.tangent;
-  const [rx, ry, rz] = pt.radial;
-  // binormal = tangent × radial.  For our straight-segments and X-Z bend
-  // this is always +Y or close to it.  We compute properly so the helix
-  // wrap stays correct if the bend ever leaves the X-Z plane.
-  const bx = ty * rz - tz * ry;
-  const by = tz * rx - tx * rz;
-  const bz = tx * ry - ty * rx;
-
   if (!pt.melted) {
-    // Paired duplex — B-helix radius around the axis, in (radial, binormal).
-    const rOff = HELIX_RADIUS * Math.cos(phase);
-    const bOff = HELIX_RADIUS * Math.sin(phase);
+    // Paired duplex — standard B-helix wrap in (X, Y) around the axis.
     return [
-      ax + rOff * rx + bOff * bx,
-      ay + rOff * ry + bOff * by,
-      az + rOff * rz + bOff * bz,
+      ax + HELIX_RADIUS * Math.cos(phase),
+      ay + HELIX_RADIUS * Math.sin(phase),
+      az,
     ];
   }
 
@@ -338,30 +261,23 @@ function strandPosition(
   const t = (pt.idx - bubbleLoIdx) / bubbleSize;
   const env = Math.sin(Math.PI * t); // 0 at boundaries, 1 in middle
 
+  // Twist contribution fades to zero in the middle of the bubble (strands
+  // are no longer base-paired there) and recovers at the boundaries.
+  const helixR = HELIX_RADIUS * (1 - env);
+
   if (strandSign === 1) {
-    // Coding strand — bulges outward (radial) and lifts in +Y to wrap
-    // over the RNAP body (β subunit at y = +22).
-    const radialOut = CODING_WRAP_OFFSET * env;
-    const yLift = (HELIX_RADIUS + CODING_WRAP_OFFSET) * env; // peaks above β
-    // At env = 0 (boundary), positions match a standard paired offset
-    // along radial only — keeping the strand contiguous with the upstream /
-    // downstream duplex.  Twist contribution is faded to zero in the bubble.
-    const helixR = HELIX_RADIUS * (1 - env) * Math.cos(phase);
-    const helixB = HELIX_RADIUS * (1 - env) * Math.sin(phase);
+    // Coding (non-template) — arcs upward over the β′-clamp.
     return [
-      ax + (helixR + radialOut) * rx + helixB * bx,
-      ay + (helixR + radialOut) * ry + helixB * by + yLift,
-      az + (helixR + radialOut) * rz + helixB * bz,
+      ax + helixR * Math.cos(phase),
+      ay + helixR * Math.sin(phase) + CODING_WRAP_OFFSET * env,
+      az,
     ];
   } else {
-    // Template strand — pulled inward (radial), stays near y = 0.
-    const radialIn = TEMPLATE_PASS_OFFSET * env;
-    const helixR = HELIX_RADIUS * (1 - env) * Math.cos(phase);
-    const helixB = HELIX_RADIUS * (1 - env) * Math.sin(phase);
+    // Template — dips downward into the active-site cleft.
     return [
-      ax + (helixR + radialIn) * rx + helixB * bx,
-      ay + (helixR + radialIn) * ry + helixB * by,
-      az + (helixR + radialIn) * rz + helixB * bz,
+      ax + helixR * Math.cos(phase),
+      ay + helixR * Math.sin(phase) - TEMPLATE_DIP_OFFSET * env,
+      az,
     ];
   }
 }
@@ -506,25 +422,37 @@ interface SubunitDef {
 }
 
 const RNAP_SUBUNITS: SubunitDef[] = [
-  // α dimer — assembly platform on the back side of the cleft.  Two copies
-  // of the same protein; placed symmetrically along Z so they read as a
-  // dimer.  Lighter / cooler than β & β′ to push them visually backwards.
+  // α dimer — assembly platform on the BACK of the body (opposite the
+  // cleft).  Two copies of the same protein, placed symmetrically along
+  // Z so they read as a dimer.  Light / cool grey pushes them visually
+  // backward in the depth dimension.  Source: Murakami 2015
+  // (publications.md R5) — α-NTDs scaffold complex assembly, sit
+  // opposite the active-site cleft.
   { chain: "Y", resi: 1, label: "α I",  offset: [-12, -3, -12], radius: 7,  color: "#cbd5e1" },
   { chain: "Z", resi: 1, label: "α II", offset: [-12, -3,  12], radius: 7,  color: "#94a3b8" },
 
-  // β subunit — upper jaw of the cleft (lobe + flap).  The downstream DNA
-  // passes through the gap between this and β′ in real RNAP; here it sits
-  // above the helix axis (y = 0) so the existing strand spheres at y ± 10
-  // visually thread between β and β′.
-  { chain: "Q", resi: 1, label: "β",    offset: [  0, 22,   0], radius: 15, color: "#64748b" },
-
-  // β′ subunit — lower jaw / clamp / bridge helix / Mg²⁺ active site.  Drawn
-  // a touch larger and darker than β so the Mg-active-site half of the cleft
+  // β′ subunit — UPPER jaw of the cleft.  Contains the clamp (closes
+  // over downstream DNA), the bridge helix, and the Mg²⁺ active site.
+  // The non-template (coding) strand wraps OVER this subunit on the
+  // surface of the body — the renderer's coding-strand +Y bulge lands
+  // directly over β′.  Source: Santangelo & Artsimovitch 2011 Fig 1
+  // (publications.md R1) — "RNA exit channel formed between β-flap and
+  // β′-clamp".  Note positions swapped 2026-05-01: pre-swap had β on
+  // top.  Drawn slightly larger / darker than β so the active-site half
   // reads as the "business end".
-  { chain: "K", resi: 1, label: "β'",   offset: [  0,-22,   0], radius: 16, color: "#475569" },
+  { chain: "K", resi: 1, label: "β'",   offset: [  0, 22,   0], radius: 16, color: "#475569" },
 
-  // ω subunit — small β′ folding chaperone, tucked behind/below.
-  { chain: "O", resi: 1, label: "ω",    offset: [-14,-12,  -3], radius: 4,  color: "#1e293b" },
+  // β subunit — LOWER jaw of the cleft (lobe + protrusion + flap).  The
+  // β-flap caps the upper edge of the RNA exit channel from below.  The
+  // template strand dips down toward this side at the active site.
+  { chain: "Q", resi: 1, label: "β",    offset: [  0,-22,   0], radius: 15, color: "#64748b" },
+
+  // ω subunit — small β′-folding chaperone, repositioned to sit
+  // ADJACENT TO β′ (NOT next to the α-dimer).  Source: Murakami 2015
+  // (publications.md R5) — ω wraps the C-terminal region of β′ and is
+  // structurally a β′-side accessory.  Tucked just behind / below β′ so
+  // it doesn't visually merge with the β′ sphere.
+  { chain: "O", resi: 1, label: "ω",    offset: [-12, 16,   0], radius: 4,  color: "#1e293b" },
 ];
 
 // -------------------------------------------------------------------------
@@ -969,27 +897,81 @@ class SchematicBuilder implements GeometryBuilder {
           ]
         : rnaAnchorBound;
 
-    // Chain T — ALL trapped RNA coiled inside RNAP body while σ is bound.
-    // (σ1.1 blocks the exit channel — no RNA exits until σ leaves.)
+    // Chain T plays a dual role:
+    //
+    //   σ bound (sigmaPresent = true):
+    //     The full nascent transcript is trapped inside RNAP — σ1.1
+    //     occludes the exit channel, so even bases beyond the 9-nt
+    //     hybrid can't get out.  Render as a tight coil at rnapCenter.
+    //
+    //   σ released (sigmaPresent = false):
+    //     Only the 3′-end *hybrid window* (last HYBRID_LEN_SCHEMATIC bases
+    //     paired with template) sits inside the body — these are at the
+    //     active site, base-paired with the template strand.  The 5′ tail
+    //     (anything beyond the hybrid) is on chain R, threading through
+    //     the exit channel.  Rendering the hybrid in chain T with its
+    //     existing amber colour matches the SequencePanel's `rna-hybrid`
+    //     yellow highlight (publications.md R1: "8–9 bp of the RNA–DNA
+    //     hybrid, the key determinant of elongation complex stability").
+    //
+    // Hybrid bases are placed at the template-strand positions inside the
+    // bubble (the last HYBRID_LEN_SCHEMATIC bubble bases on the template
+    // path), with a small +Y offset so they don't co-render with the
+    // template spheres.  This puts the hybrid right at the active-site
+    // end of the bubble where it biologically lives.
+    const hybridLen = Math.min(rna.length, HYBRID_LEN_SCHEMATIC);
     if (sigmaPresent && rna.length > 0) {
+      // -- σ bound: full RNA coiled inside RNAP --------------------------
       let prevT: number | null = null;
       for (let k = 0; k < rna.length; k++) {
         const base = rna[k];
-        // Tight coil near rnapCenter interior.  Coil tightens (smaller
-        // angular step) for longer RNA so a fully scrunched ≈11-nt RNA
-        // doesn't visibly spill out of the body.
         const turns = Math.min(2, rna.length / 9);
         const angle = (k / Math.max(rna.length, 1)) * turns * 2 * Math.PI;
-        const coilR = 8; // Å — well inside the RNAP sphere (radius 18)
-        // Centre the coil's Z extent on rnapCenter so it doesn't drift
-        // out of the body for longer RNA.
+        const coilR = 8;
         const zSpan = Math.min(12, rna.length * 0.6);
         const x = rnapCenter[0] + coilR * Math.cos(angle);
         const y = rnapCenter[1] + coilR * Math.sin(angle);
         const z = rnapCenter[2] - zSpan / 2 + (k / Math.max(rna.length - 1, 1)) * zSpan;
         const atom: Atom = {
-          elem: "O",  // oxygen → amber in default 3Dmol colouring (overridden by chain style)
+          elem: "O",
           x, y, z,
+          resn: rnaResn(base),
+          resi: k + 1,
+          chain: "T",
+          serial: serial++,
+          atomName: "P",
+        };
+        if (prevT !== null) { atom.bonds = [prevT]; atom.bondOrder = [1]; }
+        prevT = atom.serial;
+        atoms.push(atom);
+      }
+    } else if (!sigmaPresent && hybridLen > 0) {
+      // -- σ released: hybrid bases inside bubble at template positions --
+      let prevT: number | null = null;
+      // The hybrid is at the 3′ end of the RNA, base-paired with the
+      // template at the downstream (active-site) end of the bubble.  In
+      // the bubble parameterisation, that's the last `hybridLen` bubble
+      // bases — i.e. backbone indices [bubbleHiIdx − hybridLen + 1 ..
+      // bubbleHiIdx].  We sample the template path at those indices and
+      // offset slightly in +Y so the hybrid spheres sit just above the
+      // template line (visible without overlapping it).
+      for (let k = rna.length - hybridLen; k < rna.length; k++) {
+        const base = rna[k];
+        // Map RNA index k onto the corresponding bubble position.  Active
+        // site = downstream bubble edge; the last RNA base k = rna.length−1
+        // sits at the active site (bubbleHiIdx).  So:
+        const offsetFrom3 = (rna.length - 1) - k;     // 0 for 3′-most base
+        const tmplIdx = bubbleHiIdx - offsetFrom3;
+        const tmplPt =
+          tmplIdx >= 0 && tmplIdx < backbone.length
+            ? backbone[tmplIdx]
+            : backbone[bubbleHiIdx];
+        const [tx, ty, tz] = strandPosition(tmplPt, -1, bubbleLoIdx, bubbleHiIdx);
+        const atom: Atom = {
+          elem: "O",
+          x: tx,
+          y: ty + 4,         // small +Y lift so hybrid is visible above template
+          z: tz,
           resn: rnaResn(base),
           resi: k + 1,
           chain: "T",
@@ -1002,17 +984,20 @@ class SchematicBuilder implements GeometryBuilder {
       }
     }
 
-    // Chain R — exiting RNA, only after σ has released.
-    // Arm extends in −Z from the exit anchor (parallel to upstream DNA)
-    // with a small Y bow so the line is visible against the duplex.
-    if (!sigmaPresent && rna.length > 0) {
+    // Chain R — exiting RNA, only after σ has released.  Renders the 5′
+    // tail beyond the hybrid window (bases 0 .. rna.length − hybridLen − 1).
+    // When σ is released and rna.length ≤ HYBRID_LEN_SCHEMATIC, all bases
+    // are in the hybrid → chain R renders nothing (correct: nothing has
+    // exited yet).
+    if (!sigmaPresent && rna.length > hybridLen) {
+      const tailLen = rna.length - hybridLen;
       let prevR: number | null = null;
-      for (let k = 0; k < rna.length; k++) {
+      for (let k = 0; k < tailLen; k++) {
         const base = rna[k];
-        const t = k / Math.max(rna.length - 1, 1);
-        const x = rnaAnchor[0] + Math.sin(t * Math.PI) * 4;     // small lateral bow
-        const y = rnaAnchor[1] + Math.sin(t * Math.PI) * 10;    // slight Y arc
-        const z = rnaAnchor[2] - t * armLen - 5;                // walks back upstream
+        const t = k / Math.max(tailLen - 1, 1);
+        const x = rnaAnchor[0] + Math.sin(t * Math.PI) * 4;
+        const y = rnaAnchor[1] + Math.sin(t * Math.PI) * 10;
+        const z = rnaAnchor[2] - t * armLen - 5;
         const atom: Atom = {
           elem: "P",
           x, y, z,
