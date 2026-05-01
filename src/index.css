@@ -592,6 +592,7 @@ code, pre { font-family: var(--mono); }
 .legend-chip.bubble { color: #e69f00; }
 .legend-chip.rna-released { color: #10b981; }
 .legend-chip.rna-hybrid   { color: #fbbf24; }
+.legend-chip.rna-trapped  { color: #f59e0b; }
 .legend-chip.term-stem    { color: #a78bfa; }
 .legend-chip.term-utract  { color: #f472b6; }
 
@@ -720,6 +721,9 @@ code, pre { font-family: var(--mono); }
 }
 .rna-base.rna-hybrid   { color: #fbbf24; background: rgba(251, 191, 36, 0.18); }
 .rna-base.rna-released { color: #10b981; }
+/* Bases beyond the hybrid window while σ⁷⁰ is still bound — σ1.1 occludes
+   the exit channel, so they're trapped inside the body, not released. */
+.rna-base.rna-trapped  { color: #f59e0b; background: rgba(245, 158, 11, 0.18); }
 .rna-gap { color: transparent; }
 
 .rna-summary { margin-top: 4px; }
@@ -1541,7 +1545,9 @@ code, pre { font-family: var(--mono); }
 }
 :root[data-theme="light"] .legend-chip.m35 { color: #0369a1; }
 :root[data-theme="light"] .legend-chip.m10 { color: #047857; }
-:root[data-theme="light"] .legend-chip.rna-hybrid { color: #b45309; }
+:root[data-theme="light"] .legend-chip.rna-hybrid  { color: #b45309; }
+:root[data-theme="light"] .legend-chip.rna-trapped { color: #b45309; }
+:root[data-theme="light"] .rna-base.rna-trapped    { color: #b45309; background: rgba(180, 83, 9, 0.18); }
 :root[data-theme="light"] .seq-track.template { color: #b91c1c; }
 :root[data-theme="light"] .seq-track.coding   { color: #1d4ed8; }
 :root[data-theme="light"] .seq-track.rna      { color: #047857; }

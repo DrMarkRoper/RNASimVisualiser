@@ -246,6 +246,12 @@ export function SequencePanel({ manifest, snapshot }: SequencePanelProps) {
           <span className="legend-chip bubble">bubble</span>
           <span className="legend-chip rna-released">RNA released</span>
           <span className="legend-chip rna-hybrid">RNA:DNA hybrid</span>
+          <span
+            className="legend-chip rna-trapped"
+            title="5′ RNA bases beyond the 9-nt hybrid while σ⁷⁰ is bound — σ1.1 occludes the exit channel, so the transcript is trapped inside RNAP"
+          >
+            RNA trapped (σ-blocked)
+          </span>
           {termCols && (
             <>
               <span
@@ -387,6 +393,13 @@ export function SequencePanel({ manifest, snapshot }: SequencePanelProps) {
                 );
               }
               const hybrid = isHybridColumn(i);
+              // While σ⁷⁰ is still bound (σ1.1 occludes the exit channel),
+              // any 5′ base outside the 9-nt hybrid window is trapped inside
+              // RNAP — not released.  Mark these distinctly.  Threshold
+              // matches the schematic builder's `sigmaPresent` so the
+              // 3D and the panel transition together.
+              const sigmaBlocking = sigmaPresence > 0.05;
+              const trapped = !hybrid && sigmaBlocking;
               // Terminator overlay on the RNA track — only draw once the
               // feature has actually been transcribed (`termVisible`).
               let termCls = "";
@@ -402,24 +415,25 @@ export function SequencePanel({ manifest, snapshot }: SequencePanelProps) {
                   termCls = "term-utract"; termLabel = " · U-tract";
                 }
               }
-              const cls = [
-                "seq-base",
-                "rna-base",
-                hybrid ? "rna-hybrid" : "rna-released",
-                termCls,
-              ]
+              const stateCls = hybrid
+                ? "rna-hybrid"
+                : trapped
+                  ? "rna-trapped"
+                  : "rna-released";
+              const cls = ["seq-base", "rna-base", stateCls, termCls]
                 .filter(Boolean)
                 .join(" ");
+              const stateLabel = hybrid
+                ? " (RNA:DNA hybrid)"
+                : trapped
+                  ? " (trapped — σ1.1 blocks exit)"
+                  : " (released)";
               const coord = coordOf(i);
               return (
                 <span
                   key={i}
                   className={cls}
-                  title={
-                    `RNA +${coord}: ${r}` +
-                    (hybrid ? " (RNA:DNA hybrid)" : " (released)") +
-                    termLabel
-                  }
+                  title={`RNA +${coord}: ${r}${stateLabel}${termLabel}`}
                 >
                   {r}
                 </span>
