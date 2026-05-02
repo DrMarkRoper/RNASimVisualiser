@@ -370,6 +370,41 @@ code, pre { font-family: var(--mono); }
   z-index: 2;
 }
 .viewer3d-legend > span { display: inline-flex; align-items: center; }
+/* Clickable legend chips -------------------------------------------------- */
+.viewer3d-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.1s;
+  white-space: nowrap;
+}
+.viewer3d-legend-item:hover {
+  background: var(--bg-raised);
+}
+.viewer3d-legend-item.hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-muted);
+}
+.viewer3d-legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+/* -------------------------------------------------------------------------- */
 .viewer3d-legend i {
   display: inline-block;
   width: 10px;

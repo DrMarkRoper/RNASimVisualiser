@@ -156,7 +156,48 @@ export function Viewer3D({ manifest, snapshot, mode, options, theme }: Viewer3DP
   // to "Reset view" flips this on; hover tooltips remain available either way.
   const [showLabels, setShowLabels] = useState(false);
 
+  // Set of legend-item keys whose corresponding chains are hidden in the
+  // 3D view.  Toggled by clicking the legend chips below the canvas.
+  const [hiddenItems, setHiddenItems] = useState<Set<string>>(new Set());
+
   const builder = useMemo(() => buildersFor(mode), [mode]);
+
+  // Legend item definitions — each entry maps a stable key to the chain
+  // letter(s) it controls.  dynamicChains: in the per-frame dynamic model.
+  // pdbChains: in the PDB scaffold (atomic mode only).
+  const legendItems = useMemo(() => {
+    const items: Array<{
+      key: string;
+      label: string;
+      color: string;
+      dynamicChains: string[];
+      pdbChains: string[];
+      title?: string;
+    }> = [
+      { key: "coding",   label: "coding (+)",  color: "#3b82f6", dynamicChains: ["A"],          pdbChains: [] },
+      { key: "template", label: "template (-)", color: "#ef4444", dynamicChains: ["B"],          pdbChains: [] },
+      { key: "rna",      label: "nascent RNA",  color: "#10b981", dynamicChains: ["R", "T", "X"], pdbChains: [] },
+    ];
+    if (options.rnap === "mesh") {
+      items.push({ key: "alpha",     label: "α₂", color: "#94a3b8", dynamicChains: ["Y", "Z"], pdbChains: ["A", "B"], title: "RNAP α subunits — assembly platform" });
+      items.push({ key: "beta",      label: "β",  color: "#64748b", dynamicChains: ["Q"],      pdbChains: ["C"],      title: "RNAP β subunit — upper cleft jaw" });
+      items.push({ key: "betaprime", label: "β′", color: "#475569", dynamicChains: ["K"],      pdbChains: ["D"],      title: "RNAP β′ subunit — clamp + active site" });
+      items.push({ key: "omega",     label: "ω",  color: "#1e293b", dynamicChains: ["O"],      pdbChains: ["E"],      title: "RNAP ω subunit — β′ chaperone" });
+    } else {
+      items.push({ key: "rnap", label: "RNAP", color: "#9ca3af", dynamicChains: ["P"], pdbChains: ["A", "B", "C", "D", "E"] });
+    }
+    items.push({ key: "sigma", label: "σ⁷⁰", color: "#ec4899", dynamicChains: ["S", "M"], pdbChains: ["F"] });
+    items.push({ key: "w433",  label: "W433",  color: "#f59e0b", dynamicChains: ["W"],       pdbChains: [] });
+    return items;
+  }, [options.rnap]);
+
+  const handleLegendToggle = (key: string) => {
+    setHiddenItems(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   /**
    * Re-frame the whole scene to our canonical initial state:
@@ -429,13 +470,32 @@ export function Viewer3D({ manifest, snapshot, mode, options, theme }: Viewer3DP
       },
     );
 
-    // σ⁷⁰ opacity on the PDB cartoon follows the presence hint.
+    // σ⁷⁰ opacity on the PDB cartoon follows the presence hint,
+    // unless the σ⁷⁰ legend item has been hidden by the user.
     if (mode === "atomic" && pdbModelRef.current) {
+      const sigmaHidden = hiddenItems.has("sigma");
       for (const c of PDB_SIGMA_CHAINS) {
         viewer.setStyle(
           { model: pdbModelRef.current, chain: c },
-          PDB_SIGMA_STYLE(frame.hints.sigma70Presence),
+          sigmaHidden ? PDB_HIDDEN_STYLE : PDB_SIGMA_STYLE(frame.hints.sigma70Presence),
         );
+      }
+    }
+
+    // Apply legend-item visibility toggles — override the styles set above
+    // by setting hidden chains to an empty style.  Applied last so they win
+    // over any per-chain style already set this frame.
+    for (const item of legendItems) {
+      if (hiddenItems.has(item.key)) {
+        for (const chain of item.dynamicChains) {
+          viewer.setStyle({ model, chain }, PDB_HIDDEN_STYLE);
+        }
+        // Also hide the corresponding PDB-model chains in atomic mode.
+        if (mode === "atomic" && pdbModelRef.current && item.pdbChains.length > 0) {
+          for (const chain of item.pdbChains) {
+            viewer.setStyle({ model: pdbModelRef.current, chain }, PDB_HIDDEN_STYLE);
+          }
+        }
       }
     }
 
@@ -496,35 +556,30 @@ export function Viewer3D({ manifest, snapshot, mode, options, theme }: Viewer3DP
       viewer.__rnasimPrimed = true;
     }
     viewer.render();
-  }, [manifest, snapshot, builder, mode, options, showLabels]);
+  }, [manifest, snapshot, builder, mode, options, showLabels, legendItems, hiddenItems]);
 
   return (
     <div className="viewer3d">
       <div ref={mountRef} className="viewer3d-canvas" />
       <div className="viewer3d-legend">
-        <span><i style={{ background: "#3b82f6" }} /> coding (+)</span>
-        <span><i style={{ background: "#ef4444" }} /> template (-)</span>
-        <span><i style={{ background: "#10b981" }} /> nascent RNA</span>
-        {options.rnap === "mesh" ? (
-          <>
-            <span title="RNAP α subunits — assembly platform">
-              <i style={{ background: "#94a3b8" }} /> α₂
-            </span>
-            <span title="RNAP β subunit — upper cleft jaw">
-              <i style={{ background: "#64748b" }} /> β
-            </span>
-            <span title="RNAP β′ subunit — clamp + active site">
-              <i style={{ background: "#475569" }} /> β'
-            </span>
-            <span title="RNAP ω subunit — β′ chaperone">
-              <i style={{ background: "#1e293b" }} /> ω
-            </span>
-          </>
-        ) : (
-          <span><i style={{ background: "#9ca3af" }} /> RNAP</span>
-        )}
-        <span><i style={{ background: "#ec4899" }} /> σ⁷⁰</span>
-        <span><i style={{ background: "#f59e0b" }} /> W433</span>
+        {legendItems.map(item => {
+          const hidden = hiddenItems.has(item.key);
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={"viewer3d-legend-item" + (hidden ? " hidden" : "")}
+              onClick={() => handleLegendToggle(item.key)}
+              title={item.title
+                ? `${item.title} — click to ${hidden ? "show" : "hide"}`
+                : `Click to ${hidden ? "show" : "hide"} ${item.label}`}
+              aria-pressed={hidden}
+            >
+              <i style={{ background: hidden ? "var(--fg-muted)" : item.color }} />
+              {item.label}
+            </button>
+          );
+        })}
         <button
           type="button"
           className="viewer3d-reset"
