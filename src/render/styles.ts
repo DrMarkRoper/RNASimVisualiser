@@ -67,10 +67,10 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
     M: {
       sphere: { color: "#ec4899", radius: 5, opacity: 0.6,
                 colorscheme: { prop: "resi", map: {
-                  1: "#be185d", 2: "#be185d",   // σ4 (deep rose)
-                  3: "#db2777",                  // σ3 (rose)
-                  4: "#ec4899", 5: "#ec4899",   // σ2 (pink)
-                  6: "#f472b6",                  // σ1.1 (light pink, in cleft)
+                  1: "#be185d",   // σ4 (deep rose)
+                  2: "#db2777",   // σ3 (rose)
+                  3: "#ec4899",   // σ2 (pink)
+                  4: "#f472b6",   // σ1.1 (light pink, in cleft)
                 } } },
       line: { color: "#ec4899", linewidth: 2 },
     },

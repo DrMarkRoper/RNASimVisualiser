@@ -70,22 +70,14 @@ export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
         default: return "σ⁷⁰";
       }
 
-    // -- σ⁷⁰ four-region mesh (mesh mode, resi 1..6 from SIGMA_ATOMS) -------
+    // -- σ⁷⁰ four-region mesh (mesh mode, resi 1..4 from SIGMA_ATOMS) -------
     case "M":
       switch (resi) {
-        case 1:
-        case 2:
-          return "σ⁷⁰ Region 4 — −35 hexamer recognition (HTH motif)";
-        case 3:
-          return "σ⁷⁰ Region 3 — spacer / extended-10 contacts";
-        case 4:
-          return "σ⁷⁰ Region 2.4 — −10 hexamer recognition";
-        case 5:
-          return "σ⁷⁰ Region 2.3 — −10 DNA melting (W433 wedge anchor)";
-        case 6:
-          return "σ⁷⁰ Region 1.1 — autoinhibitory NTD, occludes the main channel";
-        default:
-          return "σ⁷⁰";
+        case 1: return "σ⁷⁰ Region 4 — −35 hexamer recognition (HTH motif)";
+        case 2: return "σ⁷⁰ Region 3 — spacer / extended-10 contacts";
+        case 3: return "σ⁷⁰ Region 2 — −10 hexamer recognition + region 2.3 W433 wedge";
+        case 4: return "σ⁷⁰ Region 1.1 — autoinhibitory NTD, occludes the main channel";
+        default: return "σ⁷⁰";
       }
 
     // -- Other dynamic-model elements ---------------------------------------

@@ -150,24 +150,18 @@ interface BaseAxisPoint {
  */
 function computeBackbone(
   manifest: SimulationManifest,
-  snapshot: Snapshot,
+  _snapshot: Snapshot,
+  bubbleLoIdx: number,
+  bubbleHiIdx: number,
 ): BaseAxisPoint[] {
   const len = manifest.sequence.sequence_length;
   const tssIndex = manifest.sequence.tss_index;
 
-  // Bubble bounds (clamped).
-  const bubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, len);
-  const bubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
+  // Bubble bounds passed in by build() — they may be the engine's raw
+  // bounds, or an artificially-shrunk version during the early-detach
+  // collapse animation (see computeEffectiveBubble in build).
   const bubbleSize  = Math.max(1, bubbleHiIdx - bubbleLoIdx);
-
-  // Same bubble-active gate as the previous bent model:
-  //   • approaching → bubble_upstream == bubble_downstream (no bubble)
-  //   • detaching   → engine animates bubble closed; we treat the entire
-  //                   detach as "no bubble" so the duplex doesn't squirm
-  //                   as bases trickle out frame-by-frame
-  //   • elsewhere   → real bubble
-  const hasBubble =
-    bubbleHiIdx > bubbleLoIdx && snapshot.phase !== "detaching";
+  const hasBubble = bubbleHiIdx > bubbleLoIdx;
 
   // Z-coordinate of the bubble's upstream edge — anchors the bubble in
   // scene coordinates.  Stationary during scrunching (σ holds
@@ -417,10 +411,14 @@ function computeAnimationFractions(
 interface SubunitDef {
   /** Single-character chain identifier (must be unique in schematic dyn model). */
   chain: string;
-  /** Residue index within the chain — used for hover-label disambiguation. */
+  /** Residue index within the chain — used for hover-label disambiguation
+   *  AND for label-id uniqueness when multiple atoms share a chain (e.g.
+   *  the two-sphere β / β′ extensions). */
   resi: number;
-  /** Short on-canvas label (kept compact: "α I", "β'", …). */
-  label: string;
+  /** Short on-canvas label (kept compact: "α I", "β'", …).  null = atom is
+   *  part of a multi-sphere subunit but doesn't get its own canvas label
+   *  (avoids label clutter — only one label per logical subunit). */
+  label: string | null;
   /** Centre offset relative to rnapCenter, in Å. */
   offset: [number, number, number];
   /** Sphere radius in Å (used both for styling and label-anchor placement). */
@@ -429,38 +427,44 @@ interface SubunitDef {
   color: string;
 }
 
+// rnapCenter sits at the active site (~bubble downstream end), so the body
+// must extend UPSTREAM to envelop the bubble (which spans
+// ~BUBBLE_PHYSICAL_WIDTH = 44.2 Å upstream of the active site).  Each large
+// subunit is rendered as TWO spheres, the downstream one centred near
+// rnapCenter and the upstream one ~25 Å back — together they form an
+// elongated body that covers the bubble extent without using ellipsoids
+// (3Dmol's atom geometry is sphere-only).
 const RNAP_SUBUNITS: SubunitDef[] = [
-  // α dimer — assembly platform on the BACK of the body (opposite the
-  // cleft).  Two copies of the same protein, placed symmetrically along
-  // Z so they read as a dimer.  Light / cool grey pushes them visually
-  // backward in the depth dimension.  Source: Murakami 2015
-  // (publications.md R5) — α-NTDs scaffold complex assembly, sit
+  // α dimer — assembly platform on the BACK of the body, pushed UPSTREAM
+  // so it sits behind the upstream half of the bubble (the side the
+  // hybrid emerges from on its way to the exit channel).  Two copies of
+  // the same protein, placed along Z so they read as a dimer.  Source:
+  // Murakami 2015 (publications.md R5) — α-NTDs scaffold complex assembly
   // opposite the active-site cleft.
-  { chain: "Y", resi: 1, label: "α I",  offset: [-12, -3, -12], radius: 7,  color: "#cbd5e1" },
-  { chain: "Z", resi: 1, label: "α II", offset: [-12, -3,  12], radius: 7,  color: "#94a3b8" },
+  { chain: "Y", resi: 1, label: "α I",  offset: [-12, -3, -28], radius: 7,  color: "#cbd5e1" },
+  { chain: "Z", resi: 1, label: "α II", offset: [-12, -3, -14], radius: 7,  color: "#94a3b8" },
 
-  // β′ subunit — UPPER jaw of the cleft.  Contains the clamp (closes
-  // over downstream DNA), the bridge helix, and the Mg²⁺ active site.
-  // The non-template (coding) strand wraps OVER this subunit on the
-  // surface of the body — the renderer's coding-strand +Y bulge lands
-  // directly over β′.  Source: Santangelo & Artsimovitch 2011 Fig 1
-  // (publications.md R1) — "RNA exit channel formed between β-flap and
-  // β′-clamp".  Note positions swapped 2026-05-01: pre-swap had β on
-  // top.  Drawn slightly larger / darker than β so the active-site half
-  // reads as the "business end".
-  { chain: "K", resi: 1, label: "β'",   offset: [  0, 22,   0], radius: 16, color: "#475569" },
+  // β′ subunit — UPPER jaw of the cleft (clamp + bridge helix + active
+  // site).  Two spheres: downstream half at rnapCenter, upstream half
+  // back ~25 Å so the body envelopes the bubble.  Label on the upstream
+  // sphere (closer to the visual centroid of the elongated subunit).
+  // Source: Santangelo & Artsimovitch 2011 Fig 1 (publications.md R1) —
+  // "RNA exit channel formed between β-flap and β′-clamp"; the coding
+  // strand wraps over this surface.
+  { chain: "K", resi: 1, label: null,  offset: [  0, 22,  +5], radius: 15, color: "#475569" },
+  { chain: "K", resi: 2, label: "β'",  offset: [  0, 22, -22], radius: 15, color: "#475569" },
 
-  // β subunit — LOWER jaw of the cleft (lobe + protrusion + flap).  The
-  // β-flap caps the upper edge of the RNA exit channel from below.  The
-  // template strand dips down toward this side at the active site.
-  { chain: "Q", resi: 1, label: "β",    offset: [  0,-22,   0], radius: 15, color: "#64748b" },
+  // β subunit — LOWER jaw of the cleft (lobe + protrusion + flap).
+  // Two-sphere extension matches β′ so the body looks visually
+  // symmetric across the cleft.
+  { chain: "Q", resi: 1, label: null,  offset: [  0,-22,  +5], radius: 15, color: "#64748b" },
+  { chain: "Q", resi: 2, label: "β",   offset: [  0,-22, -22], radius: 15, color: "#64748b" },
 
-  // ω subunit — small β′-folding chaperone, repositioned to sit
-  // ADJACENT TO β′ (NOT next to the α-dimer).  Source: Murakami 2015
-  // (publications.md R5) — ω wraps the C-terminal region of β′ and is
-  // structurally a β′-side accessory.  Tucked just behind / below β′ so
-  // it doesn't visually merge with the β′ sphere.
-  { chain: "O", resi: 1, label: "ω",    offset: [-12, 16,   0], radius: 4,  color: "#1e293b" },
+  // ω subunit — β′-folding chaperone, on the β′ (upper) side of the
+  // body, slightly UPSTREAM of rnapCenter so it sits behind the
+  // upstream β′ sphere — keeps it from visually merging with the
+  // downstream β′.  Source: Murakami 2015 (publications.md R5).
+  { chain: "O", resi: 1, label: "ω",   offset: [-12, 16, -10], radius: 4,  color: "#1e293b" },
 ];
 
 // -------------------------------------------------------------------------
@@ -551,45 +555,47 @@ interface SigmaAtomDef {
 }
 
 const SIGMA_ATOMS: SigmaAtomDef[] = [
-  // -- Region 4 (HTH on -35) -------------------------------------------------
+  // One sphere per region (was previously two for σ4 + two for σ2).  The
+  // multi-sphere representation looked like duplicates rather than HTH /
+  // 2.3-vs-2.4 sub-structure, and the canonical Santangelo Fig 1
+  // (publications.md R1) shows σ⁷⁰ with one blob per region anyway.
+  //
+  // Y offsets brought DOWN from +26..+32 to +13..+15 — the regions now
+  // sit just above the upstream DNA (y = 0) and just below the β′-clamp
+  // top (y = +37), instead of floating well above the body.  W433's
+  // anchor and inserted-position calc are independent (W433 anchors on
+  // the helix axis at coord −11 along the local +Y radial), so this
+  // change does NOT alter the W433 wedge animation.
+
+  // σ4 — recognises −35 hexamer (HTH motif) ---------------------------------
   {
     resi: 1, region: "4",
     anchor: { kind: "promoter", coord: -35 },
-    boundOffset: [4, 26, 0],
+    boundOffset: [4, 14, 0],
     labelAnchor: true, label: "σ4 (-35)",
   },
-  {
-    resi: 2, region: "4",
-    anchor: { kind: "promoter", coord: -34 },
-    boundOffset: [4, 30, 0],
-  },
 
-  // -- Region 3 (spacer / extended -10) -------------------------------------
+  // σ3 — spacer / extended −10 contacts -------------------------------------
   {
-    resi: 3, region: "3",
+    resi: 2, region: "3",
     anchor: { kind: "promoter", coord: -22 },
-    boundOffset: [0, 32, 0],
+    boundOffset: [0, 15, 0],
     labelAnchor: true, label: "σ3",
   },
 
-  // -- Region 2 (recognises -10; 2.3 W433 wedge) ----------------------------
+  // σ2 — recognises −10 hexamer; region 2.3 is the W433 melt wedge ---------
   {
-    resi: 4, region: "2",
+    resi: 3, region: "2",
     anchor: { kind: "promoter", coord: -10 },
-    boundOffset: [-4, 28, 0],
+    boundOffset: [-2, 13, 0],
     labelAnchor: true, label: "σ2 (-10)",
   },
-  {
-    resi: 5, region: "2",
-    anchor: { kind: "promoter", coord: -12 },
-    boundOffset: [-2, 26, 0],
-  },
 
-  // -- Region 1.1 (autoinhibitory NTD inside RNAP cleft) --------------------
-  // Anchored on rnapCenter, not on a promoter coord.  When σ is bound, this
-  // sphere sits *inside* the RNAP body (occluding the main channel).
+  // σ1.1 — autoinhibitory NTD inside the RNAP cleft -------------------------
+  // Anchored on rnapCenter, sits inside the body (occludes the main channel
+  // until promoter escape).
   {
-    resi: 6, region: "1.1",
+    resi: 4, region: "1.1",
     anchor: { kind: "rnap" },
     boundOffset: [-2, 0, 4],
     labelAnchor: true, label: "σ1.1",
@@ -628,14 +634,54 @@ class SchematicBuilder implements GeometryBuilder {
     snapshot: Snapshot,
     options: RenderOptions,
   ): GeometryFrame {
-    const backbone = computeBackbone(manifest, snapshot);
     const atoms: Atom[] = [];
     let serial = 1;
 
     const tssIndex = manifest.sequence.tss_index;
+    const len = manifest.sequence.sequence_length;
+    const rawBubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, len);
+    const rawBubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
+
+    // Detach early-collapse animation.  The engine animates the bubble
+    // closing across ~14 detach frames, but a sudden snap on detach
+    // frame 1 (followed by 13 frames of nothing happening to the DNA)
+    // reads worse than a brief but visible re-melt.  We override the
+    // bubble bounds so the bubble visibly shrinks across exactly
+    // DETACH_BUBBLE_FRAMES frames at the start of the detach phase, then
+    // snap closed for the remainder of detach.
+    //
+    // Hybrid melts in the same window: each frame the bubble loses
+    // ~(13 / DETACH_BUBBLE_FRAMES) ≈ 2.6 bases, and a corresponding
+    // chunk of hybrid (chain T amber) becomes exit thread (chain R
+    // green).  By the end of the early-detach window the entire
+    // hybrid has been ejected and the duplex is straight.
+    const DETACH_BUBBLE_FRAMES = 5;
+    const INITIAL_DETACH_BUBBLE_BP = HYBRID_LEN_SCHEMATIC + 4; // ≈13, open complex
+    let detachFrameCount = -1;
+    if (snapshot.phase === "detaching") {
+      const ranges = getPhaseRanges(manifest);
+      if (ranges.detach) {
+        detachFrameCount = snapshot.frame - ranges.detach.start;
+      }
+    }
+    let bubbleHiIdx = rawBubbleHiIdx;
+    if (snapshot.phase === "detaching") {
+      if (detachFrameCount >= 0 && detachFrameCount < DETACH_BUBBLE_FRAMES) {
+        const shrinkFactor = 1 - detachFrameCount / DETACH_BUBBLE_FRAMES;
+        const targetSize = Math.max(0, Math.floor(INITIAL_DETACH_BUBBLE_BP * shrinkFactor));
+        // Clamp to the engine's downstream bound — never artificially
+        // grow the bubble past where the engine has it.
+        bubbleHiIdx = Math.min(rawBubbleHiIdx, rawBubbleLoIdx + targetSize);
+      } else {
+        // Past the early-detach window: collapse fully.
+        bubbleHiIdx = rawBubbleLoIdx;
+      }
+    }
+    const bubbleLoIdx = rawBubbleLoIdx;
+    const bubbleSize = Math.max(1, bubbleHiIdx - bubbleLoIdx);
+
+    const backbone = computeBackbone(manifest, snapshot, bubbleLoIdx, bubbleHiIdx);
     const boneLen  = backbone.length;
-    const bubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, boneLen);
-    const bubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, boneLen);
 
     const coding   = manifest.sequence.coding_strand;
     const template = manifest.sequence.template_strand;
@@ -649,35 +695,18 @@ class SchematicBuilder implements GeometryBuilder {
 
     // RNAP body anchor — at the active site (catalytic centre), so the
     // body envelopes the bubble around the active site rather than
-    // sitting ~11 nt upstream of it (which is what bubble_upstream
-    // anchoring did).
-    //
-    // Active-site Z derivation:
-    //   • If the active site is inside the bubble (the normal case for
-    //     elongation, scrunching, paused, backtracked, etc.) we read its
-    //     Z off the bubble parameterisation directly:
-    //       z = bubbleStartZ + (positionIdx − bubbleLoIdx) / bubbleSize
-    //                          · BUBBLE_PHYSICAL_WIDTH
-    //     During scrunching this stays at the bubble's downstream end
-    //     (bubble_downstream = position, so positionIdx = bubbleHiIdx,
-    //     t = 1.0); since that downstream-end Z is itself fixed
-    //     (bubbleStartZ + BUBBLE_PHYSICAL_WIDTH) when bubble_upstream
-    //     is held by σ⁷⁰, RNAP doesn't move during scrunching.
-    //   • If there's no bubble (approaching / detaching) we fall back to
-    //     the linear position-based Z so RNAP descends onto the TSS during
-    //     approach and lifts off the last elongation position during
-    //     detach.
+    // sitting ~11 nt upstream of it.  See computeBackbone for the
+    // bubble-Z parameterisation.
     const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, boneLen);
-    const isBubblePresent =
-      bubbleHiIdx > bubbleLoIdx && snapshot.phase !== "detaching";
+    const hasBubble = bubbleHiIdx > bubbleLoIdx;
     let rnapAxisZ: number;
     if (
-      isBubblePresent &&
+      hasBubble &&
       positionIdx >= bubbleLoIdx &&
       positionIdx <= bubbleHiIdx
     ) {
       const bubbleStartZ_ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
-      const t = (positionIdx - bubbleLoIdx) / Math.max(1, bubbleHiIdx - bubbleLoIdx);
+      const t = (positionIdx - bubbleLoIdx) / bubbleSize;
       rnapAxisZ = bubbleStartZ_ + t * BUBBLE_PHYSICAL_WIDTH;
     } else {
       rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
@@ -782,13 +811,16 @@ class SchematicBuilder implements GeometryBuilder {
         });
         // Label anchored just above the top of the sphere so it doesn't
         // overlap with the geometry.  Y is the "up" screen axis after the
-        // canonical 90° camera rotation.
-        labels.push({
-          id: `subunit:${su.chain}`,
-          text: su.label,
-          position: [sx, sy + su.radius + 3, sz],
-          opacity: 1,
-        });
+        // canonical 90° camera rotation.  Skipped when su.label is null
+        // (multi-sphere subunits emit one label only — see RNAP_SUBUNITS).
+        if (su.label !== null) {
+          labels.push({
+            id: `subunit:${su.chain}:${su.resi}`,
+            text: su.label,
+            position: [sx, sy + su.radius + 3, sz],
+            opacity: 1,
+          });
+        }
       }
     } else if (options.rnap === "schematic") {
       emitLegacyRnap();
@@ -891,7 +923,6 @@ class SchematicBuilder implements GeometryBuilder {
     // ----------------------------------------------------------------
     const rna = snapshot.rna_sequence;
     const sigmaPresent = presence > 0.05;
-    const armLen = 4 * rna.length;
 
     // RNA exit anchor.  Post-Phase-B the RNA exit channel runs roughly
     // *parallel to the upstream DNA*, exiting from the upstream face of
@@ -954,7 +985,24 @@ class SchematicBuilder implements GeometryBuilder {
     // path), with a small +Y offset so they don't co-render with the
     // template spheres.  This puts the hybrid right at the active-site
     // end of the bubble where it biologically lives.
-    const hybridLen = Math.min(rna.length, HYBRID_LEN_SCHEMATIC);
+    // Effective hybrid length.  In normal phases this is the full
+    // 9-nt window (capped at rna.length).  During the early-detach
+    // collapse animation it shrinks alongside the bubble so the hybrid
+    // visibly melts into the exit thread, base by base.  Once the
+    // bubble is fully closed (late detach) it's zero.
+    //
+    // The shrinkage falls out for free from clamping `hybridLen` to
+    // `bubbleSize`: as the early-detach override shrinks bubbleHiIdx,
+    // bubbleSize shrinks, and so does `effectiveHybridLen`.  Bases
+    // that fall out of the hybrid window automatically appear in the
+    // chain R tail block below (which uses `tailEnd = rna.length −
+    // effectiveHybridLen`), so nothing is duplicated or lost.
+    const baseHybridLen = Math.min(rna.length, HYBRID_LEN_SCHEMATIC);
+    const effectiveHybridLen = hasBubble
+      ? Math.min(baseHybridLen, bubbleSize)
+      : 0;
+    const showHybrid = !sigmaPresent && hasBubble && effectiveHybridLen > 0;
+
     if (sigmaPresent && rna.length > 0) {
       // -- σ bound: full RNA coiled inside RNAP --------------------------
       let prevT: number | null = null;
@@ -980,21 +1028,16 @@ class SchematicBuilder implements GeometryBuilder {
         prevT = atom.serial;
         atoms.push(atom);
       }
-    } else if (!sigmaPresent && hybridLen > 0) {
-      // -- σ released: hybrid bases inside bubble at template positions --
+    } else if (showHybrid) {
+      // -- σ released, not detaching: hybrid bases at template positions -
       let prevT: number | null = null;
-      // The hybrid is at the 3′ end of the RNA, base-paired with the
-      // template at the downstream (active-site) end of the bubble.  In
-      // the bubble parameterisation, that's the last `hybridLen` bubble
-      // bases — i.e. backbone indices [bubbleHiIdx − hybridLen + 1 ..
-      // bubbleHiIdx].  We sample the template path at those indices and
-      // offset slightly in +Y so the hybrid spheres sit just above the
-      // template line (visible without overlapping it).
-      for (let k = rna.length - hybridLen; k < rna.length; k++) {
+      // Hybrid = 3′ end of RNA, paired with template at the active-site
+      // end of the bubble.  The last `effectiveHybridLen` bubble bases
+      // on the template strand carry the hybrid; we offset slightly −Y
+      // so the hybrid sits between the template (at y ≈ −6) and β
+      // (at y = −22), on the path toward the exit anchor.
+      for (let k = rna.length - effectiveHybridLen; k < rna.length; k++) {
         const base = rna[k];
-        // Map RNA index k onto the corresponding bubble position.  Active
-        // site = downstream bubble edge; the last RNA base k = rna.length−1
-        // sits at the active site (bubbleHiIdx).  So:
         const offsetFrom3 = (rna.length - 1) - k;     // 0 for 3′-most base
         const tmplIdx = bubbleHiIdx - offsetFrom3;
         const tmplPt =
@@ -1002,15 +1045,10 @@ class SchematicBuilder implements GeometryBuilder {
             ? backbone[tmplIdx]
             : backbone[bubbleHiIdx];
         const [tx, ty, tz] = strandPosition(tmplPt, -1, bubbleLoIdx, bubbleHiIdx);
-        // Hybrid sits BELOW the template (toward β at y = −22, on the same
-        // side as the RNA exit channel between β and α).  This places the
-        // 3′ end of the RNA on the path to the exit anchor, so the hybrid
-        // → exit-thread transition reads as a continuous channel rather
-        // than the RNA jumping from above the template to below the body.
         const atom: Atom = {
           elem: "O",
           x: tx,
-          y: ty - 4,         // small −Y dip so hybrid sits between template and β
+          y: ty - 4,         // hybrid between template and β / exit channel
           z: tz,
           resn: rnaResn(base),
           resi: k + 1,
@@ -1024,32 +1062,86 @@ class SchematicBuilder implements GeometryBuilder {
       }
     }
 
-    // Chain R — exiting RNA, only after σ has released.  Renders the 5′
-    // tail beyond the hybrid window (bases 0 .. rna.length − hybridLen − 1).
-    // When σ is released and rna.length ≤ HYBRID_LEN_SCHEMATIC, all bases
-    // are in the hybrid → chain R renders nothing (correct: nothing has
-    // exited yet).
-    if (!sigmaPresent && rna.length > hybridLen) {
-      const tailLen = rna.length - hybridLen;
-      let prevR: number | null = null;
-      for (let k = 0; k < tailLen; k++) {
-        const base = rna[k];
-        const t = k / Math.max(tailLen - 1, 1);
-        const x = rnaAnchor[0] + Math.sin(t * Math.PI) * 4;
-        const y = rnaAnchor[1] + Math.sin(t * Math.PI) * 10;
-        const z = rnaAnchor[2] - t * armLen - 5;
-        const atom: Atom = {
-          elem: "P",
-          x, y, z,
-          resn: rnaResn(base),
-          resi: k + 1,
-          chain: "R",
-          serial: serial++,
-          atomName: "P",
-        };
-        if (prevR !== null) { atom.bonds = [prevR]; atom.bondOrder = [1]; }
-        prevR = atom.serial;
-        atoms.push(atom);
+    // Chain R — exiting RNA, only after σ has released.
+    //
+    // Range:
+    //   • Normal post-σ-release: bases 0 .. rna.length − effectiveHybridLen − 1.
+    //     The 3′ end is in the hybrid (chain T) and the 5′ tail spools out
+    //     through the exit channel (chain R).
+    //   • Detaching: the entire RNA goes on chain R because the hybrid has
+    //     melted (all RNA is released).
+    //
+    // Anchor:
+    //   • showHybrid → tail anchors next to the **5′ end of the hybrid**
+    //     (the most-upstream hybrid base inside the bubble) so the tail
+    //     visibly emerges adjacent to the hybrid's upstream end, where
+    //     the RNA actually exits in the elongation complex.  The hybrid
+    //     5′ end sits at the template position of coord
+    //     (bubbleHiIdx − effectiveHybridLen + 1) with the same −4 Y
+    //     offset the hybrid spheres use.
+    //   • detaching → the hybrid is gone, so anchor at the standard
+    //     exit-channel position (rnaAnchorBound) and let the entire RNA
+    //     sweep out from there.
+    //
+    // Direction: each base steps by (−1.6, −1.6, −2.4) Å — a ~45° sweep
+    // *downward* (−Y) and *toward the camera* (−X scene = +Z screen depth
+    // after the canonical 90° camera rotation), with the longest
+    // component along −Z (back upstream).  Step magnitude is √(1.6² +
+    // 1.6² + 2.4²) ≈ 3.3 Å/nt = standard single-strand RNA spacing.
+    // Sweeping out below the body keeps the tail visually distinct from
+    // the upstream DNA duplex (which lies along the helix axis at y = 0).
+    {
+      const tailEnd = showHybrid ? rna.length - effectiveHybridLen : rna.length;
+      if (!sigmaPresent && tailEnd > 0) {
+        const STEP_X = -1.6;
+        const STEP_Y = -1.6;
+        const STEP_Z = -2.4;
+
+        // Determine where the tail's 3′ end (the base k = tailEnd − 1)
+        // anchors.  When the hybrid is being shown, anchor right at the
+        // hybrid 5′ end (so the tail visibly continues out from it).
+        // Otherwise (detaching), use the standard exit-channel position.
+        let tailAnchor: [number, number, number];
+        if (showHybrid) {
+          const hybrid5Idx = Math.max(
+            0,
+            Math.min(bubbleHiIdx - (effectiveHybridLen - 1), backbone.length - 1),
+          );
+          const hybrid5Pt = backbone[hybrid5Idx];
+          const [hx, hy, hz] = strandPosition(
+            hybrid5Pt, -1, bubbleLoIdx, bubbleHiIdx,
+          );
+          // Hybrid 5′ end position (same −4 Y offset as the hybrid spheres),
+          // plus one STEP outward so the first tail sphere doesn't sit on
+          // top of the hybrid 5′-most sphere.
+          tailAnchor = [hx + STEP_X, hy - 4 + STEP_Y, hz + STEP_Z];
+        } else {
+          tailAnchor = rnaAnchor;
+        }
+
+        let prevR: number | null = null;
+        for (let k = 0; k < tailEnd; k++) {
+          const base = rna[k];
+          // RNA is laid out 5′ → 3′; the 3′-most chain-R base
+          // (k = tailEnd − 1) sits at tailAnchor (next to the hybrid 5′),
+          // and earlier bases march further along the 45° arm.
+          const armStep = (tailEnd - 1) - k;
+          const x = tailAnchor[0] + STEP_X * armStep;
+          const y = tailAnchor[1] + STEP_Y * armStep;
+          const z = tailAnchor[2] + STEP_Z * armStep;
+          const atom: Atom = {
+            elem: "P",
+            x, y, z,
+            resn: rnaResn(base),
+            resi: k + 1,
+            chain: "R",
+            serial: serial++,
+            atomName: "P",
+          };
+          if (prevR !== null) { atom.bonds = [prevR]; atom.bondOrder = [1]; }
+          prevR = atom.serial;
+          atoms.push(atom);
+        }
       }
     }
 
