@@ -28,11 +28,16 @@ import {
   getSchematicHoverLabel,
   type PdbHoverAtom,
 } from "../render/pdbLabels";
+import type { RenderOptions } from "./RenderOptionsButton";
 
 interface Viewer3DProps {
   manifest: SimulationManifest;
   snapshot: Snapshot;
   mode: RenderMode;
+  /** Per-component render picks (schematic / mesh / atomic).  Passed to the
+   *  geometry builder so the legacy two-blob RNAP and four-domain σ⁷⁰
+   *  representations stay in place when the user hasn't selected "mesh". */
+  options: RenderOptions;
   /** Current colour theme.  The WebGL canvas clears to --viewer-bg, which
    *  is defined per-theme in index.css; we read the computed value via
    *  getComputedStyle and call viewer.setBackgroundColor when it changes. */
@@ -62,6 +67,20 @@ function buildersFor(mode: RenderMode): GeometryBuilder {
  * Convert Atom[] into 3Dmol's minimal atom-object shape. We bypass the PDB
  * text parser to avoid round-tripping strings each frame.
  */
+/** Chains drawn as abstract "mesh blobs" rather than nucleic-acid backbone.
+ *  Marked hetflag=true so 3Dmol doesn't try to apply polymer-aware styling
+ *  (cartoon ribbons, peptide bonds, etc.) to what are really sphere centres
+ *  in a procedural cartoon.  Includes:
+ *    P    — legacy two-blob RNAP placeholder
+ *    W    — W433 indole ring
+ *    S    — σ⁷⁰ legacy four-domain blob
+ *    M    — σ⁷⁰ four-region mesh (rigid-body, with on-canvas labels)
+ *    Y/Z  — RNAP α subunits I and II (mesh mode)
+ *    Q/K  — RNAP β / β′ subunits (mesh mode)
+ *    O    — RNAP ω subunit (mesh mode)
+ */
+const HET_CHAINS = new Set(["P", "W", "S", "M", "Y", "Z", "Q", "K", "O"]);
+
 function atomsForThreeDmol(atoms: Atom[]): unknown[] {
   return atoms.map((a) => ({
     elem: a.elem,
@@ -73,7 +92,7 @@ function atomsForThreeDmol(atoms: Atom[]): unknown[] {
     chain: a.chain,
     serial: a.serial,
     atom: a.atomName ?? a.elem,
-    hetflag: a.chain === "P" || a.chain === "W" || a.chain === "S",
+    hetflag: HET_CHAINS.has(a.chain),
     bonds: a.bonds ?? [],
     bondOrder: a.bondOrder ?? [],
     properties: {},
@@ -110,7 +129,7 @@ function getPdbText(): Promise<string> {
  */
 const INITIAL_Y_ROTATION_DEG = 90;
 
-export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
+export function Viewer3D({ manifest, snapshot, mode, options, theme }: Viewer3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<ReturnType<typeof $3Dmol.createViewer> | null>(null);
   // Separate model handles so atomic's PDB scaffold survives per-frame rebuilds.
@@ -123,11 +142,62 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
   // moves across subunits).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hoverLabelRef = useRef<any>(null);
+  // Persistent on-canvas labels (RNAP subunit names, σ⁷⁰ region names).
+  // Replaced wholesale every frame because positions move with rnapCenter,
+  // liftY, assembly, and σ presence — any of which can change between frames.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const meshLabelsRef = useRef<any[]>([]);
 
   const [pdbError, setPdbError] = useState<string | null>(null);
   const [pdbLoading, setPdbLoading] = useState(false);
 
+  // Persistent on-canvas labels (RNAP subunit names, σ⁷⁰ region names) are
+  // off by default — they're useful but visually noisy.  Toggle button next
+  // to "Reset view" flips this on; hover tooltips remain available either way.
+  const [showLabels, setShowLabels] = useState(false);
+
+  // Set of legend-item keys whose corresponding chains are hidden in the
+  // 3D view.  Toggled by clicking the legend chips below the canvas.
+  const [hiddenItems, setHiddenItems] = useState<Set<string>>(new Set());
+
   const builder = useMemo(() => buildersFor(mode), [mode]);
+
+  // Legend item definitions — each entry maps a stable key to the chain
+  // letter(s) it controls.  dynamicChains: in the per-frame dynamic model.
+  // pdbChains: in the PDB scaffold (atomic mode only).
+  const legendItems = useMemo(() => {
+    const items: Array<{
+      key: string;
+      label: string;
+      color: string;
+      dynamicChains: string[];
+      pdbChains: string[];
+      title?: string;
+    }> = [
+      { key: "coding",   label: "coding (+)",  color: "#3b82f6", dynamicChains: ["A"],          pdbChains: [] },
+      { key: "template", label: "template (-)", color: "#ef4444", dynamicChains: ["B"],          pdbChains: [] },
+      { key: "rna",      label: "nascent RNA",  color: "#10b981", dynamicChains: ["R", "T", "H", "U", "X"], pdbChains: [] },
+    ];
+    if (options.rnap === "mesh") {
+      items.push({ key: "alpha",     label: "α₂", color: "#94a3b8", dynamicChains: ["Y", "Z"], pdbChains: ["A", "B"], title: "RNAP α subunits — assembly platform" });
+      items.push({ key: "beta",      label: "β",  color: "#64748b", dynamicChains: ["Q"],      pdbChains: ["C"],      title: "RNAP β subunit — upper cleft jaw" });
+      items.push({ key: "betaprime", label: "β′", color: "#475569", dynamicChains: ["K"],      pdbChains: ["D"],      title: "RNAP β′ subunit — clamp + active site" });
+      items.push({ key: "omega",     label: "ω",  color: "#1e293b", dynamicChains: ["O"],      pdbChains: ["E"],      title: "RNAP ω subunit — β′ chaperone" });
+    } else {
+      items.push({ key: "rnap", label: "RNAP", color: "#9ca3af", dynamicChains: ["P"], pdbChains: ["A", "B", "C", "D", "E"] });
+    }
+    items.push({ key: "sigma", label: "σ⁷⁰", color: "#ec4899", dynamicChains: ["S", "M"], pdbChains: ["F"] });
+    items.push({ key: "w433",  label: "W433",  color: "#f59e0b", dynamicChains: ["W"],       pdbChains: [] });
+    return items;
+  }, [options.rnap]);
+
+  const handleLegendToggle = (key: string) => {
+    setHiddenItems(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   /**
    * Re-frame the whole scene to our canonical initial state:
@@ -188,6 +258,7 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
       pdbModelRef.current = null;
       dynamicModelRef.current = null;
       hoverLabelRef.current = null;
+      meshLabelsRef.current = [];
     };
   }, []);
 
@@ -322,7 +393,7 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
-    const frame: GeometryFrame = builder.build(manifest, snapshot);
+    const frame: GeometryFrame = builder.build(manifest, snapshot, options);
 
     // Drop the previous dynamic model; keep the PDB model intact.
     if (dynamicModelRef.current) {
@@ -399,13 +470,83 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
       },
     );
 
-    // σ⁷⁰ opacity on the PDB cartoon follows the presence hint.
+    // σ⁷⁰ opacity on the PDB cartoon follows the presence hint,
+    // unless the σ⁷⁰ legend item has been hidden by the user.
     if (mode === "atomic" && pdbModelRef.current) {
+      const sigmaHidden = hiddenItems.has("sigma");
       for (const c of PDB_SIGMA_CHAINS) {
         viewer.setStyle(
           { model: pdbModelRef.current, chain: c },
-          PDB_SIGMA_STYLE(frame.hints.sigma70Presence),
+          sigmaHidden ? PDB_HIDDEN_STYLE : PDB_SIGMA_STYLE(frame.hints.sigma70Presence),
         );
+      }
+    }
+
+    // Apply legend-item visibility toggles — override the styles set above
+    // by setting hidden chains to an empty style.  Applied last so they win
+    // over any per-chain style already set this frame.
+    for (const item of legendItems) {
+      if (hiddenItems.has(item.key)) {
+        for (const chain of item.dynamicChains) {
+          viewer.setStyle({ model, chain }, PDB_HIDDEN_STYLE);
+        }
+        // Also hide the corresponding PDB-model chains in atomic mode.
+        if (mode === "atomic" && pdbModelRef.current && item.pdbChains.length > 0) {
+          for (const chain of item.pdbChains) {
+            viewer.setStyle({ model: pdbModelRef.current, chain }, PDB_HIDDEN_STYLE);
+          }
+        }
+      }
+    }
+
+    // ----------------------------------------------------------
+    // Persistent on-canvas labels (RNAP subunit names, σ⁷⁰ region
+    // names).  Tear down the previous frame's labels and rebuild
+    // from frame.labels — positions can move every frame (lift,
+    // assembly, σ release), so a diff would be more code than
+    // value at this scale (≤10 labels).
+    //
+    // Schematic mode only: in atomic mode the PDB cartoon plus
+    // hover labels carry the same information without on-canvas
+    // text clutter.
+    // ----------------------------------------------------------
+    for (const h of meshLabelsRef.current) {
+      try { viewer.removeLabel?.(h); } catch (_) { /* 3Dmol cleanup */ }
+    }
+    meshLabelsRef.current = [];
+
+    // Render labels only when the user has the canvas-labels toggle on
+    // (default off — see `showLabels` state above).  Hover tooltips work
+    // independently of this gate, so users can still discover the labels
+    // by hovering even when on-canvas text is hidden.
+    if (showLabels && mode === "schematic" && frame.labels && frame.labels.length > 0) {
+      // Re-read palette vars per-frame so labels follow the live theme
+      // and the WebGL clear colour without a viewer rebuild.
+      const rootStyle = getComputedStyle(document.documentElement);
+      const bg = rootStyle.getPropertyValue("--bg-panel").trim() || "#111";
+      const fg = rootStyle.getPropertyValue("--fg").trim() || "#fff";
+      const border = rootStyle.getPropertyValue("--border").trim() || "#555";
+
+      for (const lbl of frame.labels) {
+        // opacity defaults to 1 when omitted; multiplied through to
+        // both the background and the font so σ region labels fade
+        // alongside the σ spheres they annotate.
+        const op = typeof lbl.opacity === "number" ? lbl.opacity : 1;
+        if (op < 0.05) continue; // skip labels that would be invisible
+        const handle = viewer.addLabel(lbl.text, {
+          position: { x: lbl.position[0], y: lbl.position[1], z: lbl.position[2] },
+          backgroundColor: bg,
+          backgroundOpacity: 0.78 * op,
+          fontColor: fg,
+          fontOpacity: op,
+          fontSize: 11,
+          padding: 2,
+          borderThickness: 1,
+          borderColor: border,
+          inFront: true,
+          alignment: "bottomCenter",
+        });
+        meshLabelsRef.current.push(handle);
       }
     }
 
@@ -415,18 +556,30 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
       viewer.__rnasimPrimed = true;
     }
     viewer.render();
-  }, [manifest, snapshot, builder, mode]);
+  }, [manifest, snapshot, builder, mode, options, showLabels, legendItems, hiddenItems]);
 
   return (
     <div className="viewer3d">
       <div ref={mountRef} className="viewer3d-canvas" />
       <div className="viewer3d-legend">
-        <span><i style={{ background: "#3b82f6" }} /> coding (+)</span>
-        <span><i style={{ background: "#ef4444" }} /> template (-)</span>
-        <span><i style={{ background: "#10b981" }} /> nascent RNA</span>
-        <span><i style={{ background: "#9ca3af" }} /> RNAP</span>
-        <span><i style={{ background: "#ec4899" }} /> σ⁷⁰</span>
-        <span><i style={{ background: "#f59e0b" }} /> W433</span>
+        {legendItems.map(item => {
+          const hidden = hiddenItems.has(item.key);
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={"viewer3d-legend-item" + (hidden ? " hidden" : "")}
+              onClick={() => handleLegendToggle(item.key)}
+              title={item.title
+                ? `${item.title} — click to ${hidden ? "show" : "hide"}`
+                : `Click to ${hidden ? "show" : "hide"} ${item.label}`}
+              aria-pressed={hidden}
+            >
+              <i style={{ background: hidden ? "var(--fg-muted)" : item.color }} />
+              {item.label}
+            </button>
+          );
+        })}
         <button
           type="button"
           className="viewer3d-reset"
@@ -434,6 +587,19 @@ export function Viewer3D({ manifest, snapshot, mode, theme }: Viewer3DProps) {
           title="Reset camera to initial view"
         >
           Reset view
+        </button>
+        <button
+          type="button"
+          className={"viewer3d-reset" + (showLabels ? " active" : "")}
+          onClick={() => setShowLabels((v) => !v)}
+          title={
+            showLabels
+              ? "Hide on-canvas subunit / region labels (hover still works)"
+              : "Show on-canvas subunit / region labels (mesh modes only)"
+          }
+          aria-pressed={showLabels}
+        >
+          {showLabels ? "Labels: on" : "Labels: off"}
         </button>
       </div>
       {mode === "atomic" && pdbLoading && (

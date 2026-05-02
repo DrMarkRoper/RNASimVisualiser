@@ -33,11 +33,14 @@ const ESCAPE_EVENT = /promoter escape/i;
 // with core RNAP and approaching the promoter, so presence = 1.0.
 // "detaching" is added because it follows "terminated": σ⁷⁰ was released
 // at promoter escape and is long gone by the time RNAP lifts off.
+// "hairpin_forming" sits between terminated and detaching for intrinsic
+// termination — σ⁷⁰ has been gone since promoter escape, so presence = 0.
 const RELEASED_PHASES: ReadonlySet<Phase> = new Set([
   "elongation",
   "paused",
   "backtracked",
   "terminated",
+  "hairpin_forming",
   "detaching",
   "aborted",
 ]);
@@ -80,7 +83,12 @@ export function computeSigma70PresenceArray(
       p = 0.0;
     }
     const phase = manifest.snapshots[i].phase;
-    if (phase === "terminated" || phase === "detaching" || phase === "aborted") p = 0;
+    if (
+      phase === "terminated" ||
+      phase === "hairpin_forming" ||
+      phase === "detaching" ||
+      phase === "aborted"
+    ) p = 0;
     out[i] = p;
   }
   return out;

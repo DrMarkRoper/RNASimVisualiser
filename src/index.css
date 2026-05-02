@@ -370,6 +370,41 @@ code, pre { font-family: var(--mono); }
   z-index: 2;
 }
 .viewer3d-legend > span { display: inline-flex; align-items: center; }
+/* Clickable legend chips -------------------------------------------------- */
+.viewer3d-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.1s;
+  white-space: nowrap;
+}
+.viewer3d-legend-item:hover {
+  background: var(--bg-raised);
+}
+.viewer3d-legend-item.hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-muted);
+}
+.viewer3d-legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+/* -------------------------------------------------------------------------- */
 .viewer3d-legend i {
   display: inline-block;
   width: 10px;
@@ -395,6 +430,14 @@ code, pre { font-family: var(--mono); }
 .viewer3d-reset:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+/* `active` modifier — applied when a toggle-style button is in its
+   "on" state (e.g. the Labels toggle next to Reset view).  Inverts
+   foreground/background so it visually pops as enabled. */
+.viewer3d-reset.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }
 .viewer3d-status {
   position: absolute;
@@ -584,6 +627,7 @@ code, pre { font-family: var(--mono); }
 .legend-chip.bubble { color: #e69f00; }
 .legend-chip.rna-released { color: #10b981; }
 .legend-chip.rna-hybrid   { color: #fbbf24; }
+.legend-chip.rna-trapped  { color: #f59e0b; }
 .legend-chip.term-stem    { color: #a78bfa; }
 .legend-chip.term-utract  { color: #f472b6; }
 
@@ -712,7 +756,34 @@ code, pre { font-family: var(--mono); }
 }
 .rna-base.rna-hybrid   { color: #fbbf24; background: rgba(251, 191, 36, 0.18); }
 .rna-base.rna-released { color: #10b981; }
+/* Bases beyond the hybrid window while σ⁷⁰ is still bound — σ1.1 occludes
+   the exit channel, so they're trapped inside the body, not released. */
+.rna-base.rna-trapped  { color: #f59e0b; background: rgba(245, 158, 11, 0.18); }
 .rna-gap { color: transparent; }
+
+/* Terminator-role highlights on the RNA track.  The DNA track already
+   uses these classes on `.seq-base`, but the `.rna-base.rna-*` rules
+   above mask the loop background via the cascade.  Re-declare the
+   term-* highlights AFTER the rna-* state colours so RNA bases that
+   are part of the stem / loop / U-tract carry the violet hairpin
+   palette and the 3D hairpin and the panel agree visually.  Stem
+   borders and U-tract underline already stack atop the rna-*
+   background; here we override the loop fill specifically. */
+.rna-base.term-stem5 {
+  background: rgba(124, 58, 237, 0.22);
+  border-top: 1px solid #7c3aed;
+}
+.rna-base.term-stem3 {
+  background: rgba(124, 58, 237, 0.22);
+  border-bottom: 1px solid #7c3aed;
+}
+.rna-base.term-loop {
+  background: rgba(167, 139, 250, 0.32);
+  color: #c4b5fd;
+}
+.rna-base.term-utract {
+  box-shadow: inset 0 -2px 0 0 #f472b6;
+}
 
 .rna-summary { margin-top: 4px; }
 .rna-summary h4 { margin: 0 0 4px; font-size: 12px; color: var(--fg-muted); }
@@ -1533,7 +1604,9 @@ code, pre { font-family: var(--mono); }
 }
 :root[data-theme="light"] .legend-chip.m35 { color: #0369a1; }
 :root[data-theme="light"] .legend-chip.m10 { color: #047857; }
-:root[data-theme="light"] .legend-chip.rna-hybrid { color: #b45309; }
+:root[data-theme="light"] .legend-chip.rna-hybrid  { color: #b45309; }
+:root[data-theme="light"] .legend-chip.rna-trapped { color: #b45309; }
+:root[data-theme="light"] .rna-base.rna-trapped    { color: #b45309; background: rgba(180, 83, 9, 0.18); }
 :root[data-theme="light"] .seq-track.template { color: #b91c1c; }
 :root[data-theme="light"] .seq-track.coding   { color: #1d4ed8; }
 :root[data-theme="light"] .seq-track.rna      { color: #047857; }

@@ -150,7 +150,14 @@ export function Timeline({
   // Milestone event markers only — per-frame pauses are already visible as
   // phase colour changes, so including them would drown the track.
   const MILESTONE_PATTERNS = useMemo(
-    () => [/promoter escape/i, /termination/i, /greb/i, /abortive/i, /arrest/i],
+    () => [
+      /promoter escape/i,
+      /termination/i,
+      /hairpin/i,
+      /greb/i,
+      /abortive/i,
+      /arrest/i,
+    ],
     [],
   );
   const eventMarkers = useMemo(() => {
