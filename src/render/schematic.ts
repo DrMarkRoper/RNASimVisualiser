@@ -120,6 +120,17 @@ const HAIRPIN_STEM_RNA_RISE_A   = 3.3;   // Å — single-strand RNA spacing wit
 const HAIRPIN_STEM_INTERARM_A   = 9.0;   // Å — stem-pair backbone–backbone separation
 const HAIRPIN_OPACITY_FLOOR     = 0.4;   // chain-H opacity when fold weight is 0
 const HAIRPIN_NUC_DIST_COEFF    = 0.4;   // weight-shift coefficient — loop folds first
+// Perpendicular offset for the 5′ tail when the hairpin has formed.
+// The chain-R STEP direction is collinear with the hairpin's +ẑ_loc
+// axis (the stem5 arm direction by construction), so without an
+// offset the 5′ tail bases land exactly on top of the stem5 arm
+// bases.  Offsetting one nt-spacing in +x̂_loc (perpendicular to the
+// hairpin plane) separates the tail from the stem5 arm so the
+// upstream RNA is visible alongside the folded hairpin.  Offset
+// scales with the fold fraction F so the transition is continuous
+// from pre-fold (no offset, tail walks straight back) to fully
+// formed (~3.3 Å perpendicular separation).
+const HAIRPIN_TAIL_PERP_OFFSET  = 3.3;   // Å — perpendicular displacement at F = 1
 
 // Step components used both by the existing chain-R arm and by the
 // hairpin local-frame ẑ axis (so the fold direction matches the exit
@@ -683,6 +694,10 @@ interface HairpinTargets {
   loopMid: number;
   /** Half the total stem-to-stem span in nt — denominator for the weight. */
   stemSpanHalf: number;
+  /** Local-frame +x̂ unit vector in scene coords — perpendicular to the
+   *  hairpin plane (yz_loc).  Used by the 5′ tail rebuild to offset the
+   *  tail off the stem5 arm. */
+  xLoc: [number, number, number];
 }
 
 const hairpinTargetsCache = new WeakMap<
@@ -788,6 +803,7 @@ function getHairpinTargets(
     stemHi: t.stem3_end,
     loopMid: (t.loop_start + t.loop_end - 1) / 2,
     stemSpanHalf: Math.max((t.stem3_end - t.stem5_start) / 2, 1),
+    xLoc,
   };
   perManifest.set(key, result);
   return result;
@@ -1082,15 +1098,29 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
   // (lerped) position, walking back along the exit-arm direction so
   // adjacent k indices stay close.  Bases whose lerp moved them onto
   // the hairpin pull the tail in continuously.
+  //
+  // The chain-R STEP direction is collinear with the hairpin's +ẑ_loc
+  // axis (the direction the stem5 arm extends along), so without a
+  // perpendicular offset the 5′ tail bases land EXACTLY on top of the
+  // stem5 arm bases (verified: 0.00 Å distance for the first ~5 tail
+  // bases).  Offset the tail by `F · HAIRPIN_TAIL_PERP_OFFSET` in the
+  // +x̂_loc direction (out of the hairpin plane) so the tail walks
+  // parallel to the stem5 arm but ~1 nt-spacing away from it.  Scaling
+  // by F keeps the pre-fold render unchanged (F = 0 → no offset →
+  // identical to elongation chain-R behaviour).
   if (targets.stemLo > 0) {
     const stem5Pos = out[targets.stemLo].pos;
+    const perp = F * HAIRPIN_TAIL_PERP_OFFSET;
+    const offX = perp * targets.xLoc[0];
+    const offY = perp * targets.xLoc[1];
+    const offZ = perp * targets.xLoc[2];
     for (let k = targets.stemLo - 1; k >= 0; k--) {
       const armStep = targets.stemLo - k;
       out[k] = {
         pos: [
-          stem5Pos[0] + RNA_EXIT_STEP_X * armStep,
-          stem5Pos[1] + RNA_EXIT_STEP_Y * armStep,
-          stem5Pos[2] + RNA_EXIT_STEP_Z * armStep,
+          stem5Pos[0] + offX + RNA_EXIT_STEP_X * armStep,
+          stem5Pos[1] + offY + RNA_EXIT_STEP_Y * armStep,
+          stem5Pos[2] + offZ + RNA_EXIT_STEP_Z * armStep,
         ],
         chain: "R",
         weight: 0,
