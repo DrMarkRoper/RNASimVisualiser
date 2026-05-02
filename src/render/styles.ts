@@ -25,6 +25,23 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
       sphere: { color: "#f59e0b", radius: 1.0, opacity: 0.9 },
       line:   { color: "#f59e0b", linewidth: 2 },
     },
+    // Terminator hairpin — violet spheres + lines.  RNA bases that are
+    // folding into / have folded into the intrinsic-terminator stem-loop
+    // during the `hairpin_forming` phase.  Same colour family as the
+    // phase chip (`#7c3aed`) so the timeline and the 3D scene agree.
+    H: {
+      sphere: { color: "#7c3aed", radius: 1.0, opacity: 0.85 },
+      line:   { color: "#7c3aed", linewidth: 2 },
+    },
+    // U-tract — pink spheres.  3′-most RNA bases that form the rU:dA
+    // hybrid downstream of the terminator hairpin (still paired with
+    // template at the active site).  Same pink (`#f472b6`) as the
+    // SequencePanel `term-utract` highlight so the 3D and the panel
+    // agree on which bases are the U-tract.
+    U: {
+      sphere: { color: "#f472b6", radius: 1.0, opacity: 0.9 },
+      line:   { color: "#f472b6", linewidth: 2 },
+    },
     // Backtracked RNA — translucent violet.
     X: { sphere: { color: "#a78bfa", radius: 1.0, opacity: 0.7 } },
 
@@ -93,6 +110,16 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
     T: {
       sphere: { color: "#f59e0b", radius: 0.5, opacity: 0.9 },
       line:   { color: "#f59e0b", linewidth: 2 },
+    },
+    // Terminator hairpin — violet in atomic mode too.
+    H: {
+      sphere: { color: "#7c3aed", radius: 0.5, opacity: 0.85 },
+      line:   { color: "#7c3aed", linewidth: 2 },
+    },
+    // U-tract — pink in atomic mode too.
+    U: {
+      sphere: { color: "#f472b6", radius: 0.5, opacity: 0.9 },
+      line:   { color: "#f472b6", linewidth: 2 },
     },
     X: {
       sphere: { color: "#a78bfa", radius: 0.5, opacity: 0.7 },

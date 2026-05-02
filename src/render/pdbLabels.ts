@@ -27,7 +27,9 @@ export interface PdbHoverAtom {
  *   B — template-strand DNA spheres
  *   R — nascent RNA spheres
  *   X — backtracked RNA spheres
- *   T — trapped RNA (σ-blocked)
+ *   T — trapped RNA (σ-blocked) / RNA-DNA hybrid after σ release
+ *   H — terminator hairpin (folded stem-loop in exit channel)
+ *   U — terminator U-tract (rU:dA hybrid 3′ of the hairpin)
  *   W — W433 indole (10-atom indole ring)
  *
  *   P — legacy RNAP placeholder (rendered when options.rnap === "schematic")
@@ -91,6 +93,10 @@ export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
       return "Nascent RNA";
     case "T":
       return "Trapped RNA — σ1.1 blocks exit channel while σ⁷⁰ is bound (abortive release likely)";
+    case "H":
+      return "Terminator hairpin — RNA stem-loop folding in the exit channel between β-flap and β′-clamp";
+    case "U":
+      return "Terminator U-tract — weak rU:dA hybrid that pauses RNAP long enough for hairpin nucleation";
     case "X":
       return "Backtracked RNA (secondary channel)";
     default:

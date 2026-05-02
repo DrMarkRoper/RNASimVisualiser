@@ -96,6 +96,38 @@ const RNA_EXIT_Y_OFFSET = -10;       // Å — between β (y=-22) and α (y≈-3
 // bp, so each base spacing decreases (the renderer's scrunching effect).
 const BUBBLE_PHYSICAL_WIDTH = 13 * RISE_PER_BP;
 
+// -------------------------------------------------------------------------
+// Intrinsic-terminator hairpin geometry (added 2026-05-02).
+//
+// During the new `hairpin_forming` phase (snapshot.py::Phase) the engine
+// emits a fixed number of frames in which RNA shape changes but the
+// engine state does not — the renderer interpolates each RNA base from
+// its pre-fold "home" position toward a precomputed hairpin target.
+//
+// Target geometry follows publications.md R10 (You et al. 2023): the
+// hairpin folds in the exit channel with the loop apex pointing away
+// from RNAP and the hairpin axis approximately parallel to the upstream
+// duplex.  The local frame is anchored on the existing exit channel
+// (RNA_EXIT_X_OFFSET / RNA_EXIT_Y_OFFSET) and oriented so +ẑ_loc is the
+// chain-R arm direction the renderer already uses, +ŷ_loc is
+// perpendicular to ẑ_loc and to the upstream DNA tangent (the hairpin
+// opens away from the DNA), and +x̂_loc completes the right-handed
+// frame.  No new exit anchor — the user's "RNA somewhat away from the
+// DNA" requirement is already satisfied by the existing 45° arm.
+// -------------------------------------------------------------------------
+
+const HAIRPIN_STEM_RNA_RISE_A   = 3.3;   // Å — single-strand RNA spacing within a stem arm
+const HAIRPIN_STEM_INTERARM_A   = 9.0;   // Å — stem-pair backbone–backbone separation
+const HAIRPIN_OPACITY_FLOOR     = 0.4;   // chain-H opacity when fold weight is 0
+const HAIRPIN_NUC_DIST_COEFF    = 0.4;   // weight-shift coefficient — loop folds first
+
+// Step components used both by the existing chain-R arm and by the
+// hairpin local-frame ẑ axis (so the fold direction matches the exit
+// arm direction the user already sees).
+const RNA_EXIT_STEP_X = -1.6;
+const RNA_EXIT_STEP_Y = -1.6;
+const RNA_EXIT_STEP_Z = -2.4;
+
 // Map a TSS-relative coordinate to a strand index along the full helix.
 function coordToIndex(coord: number, tssIndex: number): number {
   return coord < 0 ? tssIndex + coord : tssIndex + coord - 1;
@@ -317,7 +349,8 @@ interface PhaseRange {
 }
 interface PhaseRanges {
   approach: PhaseRange | null;
-  detach: PhaseRange | null;
+  hairpin:  PhaseRange | null;
+  detach:   PhaseRange | null;
 }
 
 const phaseRangesCache = new WeakMap<SimulationManifest, PhaseRanges>();
@@ -327,12 +360,17 @@ function getPhaseRanges(manifest: SimulationManifest): PhaseRanges {
   if (cached) return cached;
 
   let apStart = -1, apEnd = -1;
+  let hpStart = -1, hpEnd = -1;
   let dtStart = -1, dtEnd = -1;
 
   for (const s of manifest.snapshots) {
     if (s.phase === "approaching") {
       if (apStart < 0) apStart = s.frame;
       apEnd = s.frame;
+    }
+    if (s.phase === "hairpin_forming") {
+      if (hpStart < 0) hpStart = s.frame;
+      hpEnd = s.frame;
     }
     if (s.phase === "detaching") {
       if (dtStart < 0) dtStart = s.frame;
@@ -342,6 +380,7 @@ function getPhaseRanges(manifest: SimulationManifest): PhaseRanges {
 
   const result: PhaseRanges = {
     approach: apStart >= 0 ? { start: apStart, end: apEnd } : null,
+    hairpin:  hpStart >= 0 ? { start: hpStart, end: hpEnd } : null,
     detach:   dtStart >= 0 ? { start: dtStart, end: dtEnd } : null,
   };
   phaseRangesCache.set(manifest, result);
@@ -621,6 +660,446 @@ const INDOLE_TEMPLATE: Array<{ name: string; elem: string; x: number; y: number;
   { name: "CZ2", elem: "C", x:  1.39, y: 3.59, z: 0.00 },
   { name: "CA",  elem: "C", x: -1.20, y: -1.00, z: 0.00 },
 ];
+
+// -------------------------------------------------------------------------
+// Hairpin target geometry — per-base (x, y, z) that each stem/loop/stem
+// base is lerped toward during `hairpin_forming` (and held at during
+// `detaching` if a terminator is annotated).
+//
+// Cached per (manifest, anchor-z) tuple so repeated calls during a
+// frame redraw don't rebuild the table.  Anchor depends on the active-
+// site Z so we invalidate when rnapCenter[2] moves; X / Y of the anchor
+// are constants so they don't enter the cache key.
+// -------------------------------------------------------------------------
+
+interface HairpinTargets {
+  /** Map from RNA base index k (0-based, 5′→3′) to scene-coord target. */
+  byIndex: Map<number, [number, number, number]>;
+  /** Inclusive lower bound of the hairpin-styled (chain H) range. */
+  stemLo: number;
+  /** Exclusive upper bound of the hairpin-styled (chain H) range. */
+  stemHi: number;
+  /** Loop midpoint (RNA index) — used by the per-base fold weight curve. */
+  loopMid: number;
+  /** Half the total stem-to-stem span in nt — denominator for the weight. */
+  stemSpanHalf: number;
+}
+
+const hairpinTargetsCache = new WeakMap<
+  SimulationManifest,
+  Map<string, HairpinTargets | null>
+>();
+
+function getHairpinTargets(
+  manifest: SimulationManifest,
+  anchor: [number, number, number],
+): HairpinTargets | null {
+  let perManifest = hairpinTargetsCache.get(manifest);
+  if (!perManifest) {
+    perManifest = new Map();
+    hairpinTargetsCache.set(manifest, perManifest);
+  }
+  // Round the anchor Z to 0.1 Å so floating-point jitter doesn't blow
+  // up the cache.  X / Y are constants in the current build, but key on
+  // them too so a future move doesn't silently return stale entries.
+  const key =
+    anchor[0].toFixed(1) + "," +
+    anchor[1].toFixed(1) + "," +
+    anchor[2].toFixed(1);
+  const cached = perManifest.get(key);
+  if (cached !== undefined) return cached;
+
+  const t = manifest.terminator;
+  if (!t) {
+    perManifest.set(key, null);
+    return null;
+  }
+  const stemLen = t.stem5_end - t.stem5_start;
+  const loopLen = t.loop_end - t.loop_start;
+  if (stemLen < 1 || loopLen < 1) {
+    perManifest.set(key, null);
+    return null;
+  }
+
+  // Local frame: ẑ_loc along the existing exit-arm direction so the
+  // hairpin opens in the same direction the chain-R tail already does.
+  const stepMag = Math.hypot(RNA_EXIT_STEP_X, RNA_EXIT_STEP_Y, RNA_EXIT_STEP_Z);
+  const zLoc: [number, number, number] = [
+    RNA_EXIT_STEP_X / stepMag,
+    RNA_EXIT_STEP_Y / stepMag,
+    RNA_EXIT_STEP_Z / stepMag,
+  ];
+  // ŷ_loc = normalise(ẑ_loc × (+Z scene)) — perpendicular to both the
+  // exit arm and to the upstream DNA tangent, so the hairpin opens
+  // away from the DNA rather than into it.
+  // ẑ_loc × (0,0,1) = (zLoc[1], -zLoc[0], 0)
+  const yRaw: [number, number, number] = [zLoc[1], -zLoc[0], 0];
+  const yMag = Math.hypot(yRaw[0], yRaw[1], yRaw[2]) || 1;
+  const yLoc: [number, number, number] = [yRaw[0] / yMag, yRaw[1] / yMag, yRaw[2] / yMag];
+  // x̂_loc = ẑ_loc × ŷ_loc — completes the right-handed frame.
+  const xLoc: [number, number, number] = [
+    zLoc[1] * yLoc[2] - zLoc[2] * yLoc[1],
+    zLoc[2] * yLoc[0] - zLoc[0] * yLoc[2],
+    zLoc[0] * yLoc[1] - zLoc[1] * yLoc[0],
+  ];
+
+  const S = HAIRPIN_STEM_RNA_RISE_A;
+  const D = HAIRPIN_STEM_INTERARM_A;
+
+  function localToScene(
+    lx: number, ly: number, lz: number,
+  ): [number, number, number] {
+    return [
+      anchor[0] + lx * xLoc[0] + ly * yLoc[0] + lz * zLoc[0],
+      anchor[1] + lx * xLoc[1] + ly * yLoc[1] + lz * zLoc[1],
+      anchor[2] + lx * xLoc[2] + ly * yLoc[2] + lz * zLoc[2],
+    ];
+  }
+
+  const byIndex = new Map<number, [number, number, number]>();
+
+  // 5′ stem arm: bases stem5_start..stem5_end-1 walk outward from the
+  // anchor along +ẑ_loc, with +D/2 offset along +ŷ_loc.
+  for (let k = t.stem5_start; k < t.stem5_end; k++) {
+    const i = k - t.stem5_start; // 0..stemLen-1
+    byIndex.set(k, localToScene(0, +D / 2, i * S));
+  }
+  // Loop: half-circle of radius D/2 in the (y, z) local plane,
+  // connecting the stem5 5′-end (at y=+D/2) to the stem3 3′-end
+  // (at y=-D/2) at z = stemLen·S.
+  for (let k = t.loop_start; k < t.loop_end; k++) {
+    const i = k - t.loop_start; // 0..loopLen-1
+    const theta = Math.PI * (i / Math.max(loopLen - 1, 1));
+    byIndex.set(
+      k,
+      localToScene(0, (D / 2) * Math.cos(theta), stemLen * S + (D / 2) * Math.sin(theta)),
+    );
+  }
+  // 3′ stem arm: bases stem3_start..stem3_end-1 walk back toward the
+  // anchor at y=-D/2, mirroring the 5′ arm.
+  for (let k = t.stem3_start; k < t.stem3_end; k++) {
+    const i = k - t.stem3_start; // 0..stemLen-1
+    byIndex.set(k, localToScene(0, -D / 2, (stemLen - 1 - i) * S));
+  }
+
+  const result: HairpinTargets = {
+    byIndex,
+    stemLo: t.stem5_start,
+    stemHi: t.stem3_end,
+    loopMid: (t.loop_start + t.loop_end - 1) / 2,
+    stemSpanHalf: Math.max((t.stem3_end - t.stem5_start) / 2, 1),
+  };
+  perManifest.set(key, result);
+  return result;
+}
+
+/**
+ * Compute the global hairpin fold fraction F ∈ [0, 1] for the given
+ * snapshot.  F = 0 → "home" (pre-fold) positions; F = 1 → fully formed
+ * hairpin.  Returns 0 outside the relevant phases.
+ */
+function computeHairpinFold(
+  manifest: SimulationManifest,
+  snapshot: Snapshot,
+): number {
+  if (snapshot.phase === "hairpin_forming") {
+    const ranges = getPhaseRanges(manifest);
+    if (!ranges.hairpin) return 0;
+    const span = Math.max(ranges.hairpin.end - ranges.hairpin.start, 1);
+    return Math.min(1, Math.max(0, (snapshot.frame - ranges.hairpin.start) / span));
+  }
+  // Once the hairpin has formed it stays formed for the rest of the run.
+  if (snapshot.phase === "detaching" && manifest.terminator) {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Per-base fold weight that zips the loop first and the stem ends last.
+ * F is the global fold fraction; returns 0 when base k should sit at
+ * its home position, 1 when it should sit at its hairpin target.
+ */
+function baseHairpinWeight(
+  k: number,
+  F: number,
+  targets: HairpinTargets,
+): number {
+  if (F <= 0) return 0;
+  if (F >= 1) return 1;
+  const distFromLoop = Math.abs(k - targets.loopMid) / targets.stemSpanHalf;
+  // F · (1 + d·c) − d·c — at d=0 (loop apex) weight = F; at d=1 (stem
+  // end) weight = F − HAIRPIN_NUC_DIST_COEFF + F·HAIRPIN_NUC_DIST_COEFF.
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      F * (1 + distFromLoop * HAIRPIN_NUC_DIST_COEFF)
+        - distFromLoop * HAIRPIN_NUC_DIST_COEFF,
+    ),
+  );
+}
+
+// -------------------------------------------------------------------------
+// Per-RNA-base position table (used by the schematic builder).
+//
+// Replaces the three independent emission blocks (trapped coil / hybrid
+// at template positions / chain-R 45° tail) with a single per-index
+// position function.  This is the abstraction that makes the hairpin
+// "drag back" possible without breaking the strand: every base k has
+// one continuous position function so adjacent bases stay close even
+// as the strand reshapes.
+// -------------------------------------------------------------------------
+
+type RnaChain = "T" | "R" | "H" | "U";
+
+interface RnaBasePos {
+  pos: [number, number, number];
+  chain: RnaChain;
+  /** 0..1 — used to fade chain H in as the hairpin folds. */
+  weight: number;
+}
+
+interface RnaContext {
+  manifest:           SimulationManifest;
+  snapshot:           Snapshot;
+  rnapCenter:         [number, number, number];
+  backbone:           BaseAxisPoint[];
+  bubbleLoIdx:        number;
+  bubbleHiIdx:        number;
+  hasBubble:          boolean;
+  sigmaPresent:       boolean;
+  effectiveHybridLen: number;
+  showHybrid:         boolean;
+  rnaAnchor:          [number, number, number];
+  rnaAnchorBound:     [number, number, number];
+}
+
+/** Compute the position chain-R / chain-T would put base k at, ignoring
+ *  any hairpin folding.  This is the "home" lerp source. */
+function computeHomePositions(ctx: RnaContext): Array<{
+  pos: [number, number, number];
+  chain: "T" | "R";
+}> {
+  const rna = ctx.snapshot.rna_sequence;
+  const n = rna.length;
+  const out: Array<{ pos: [number, number, number]; chain: "T" | "R" }> =
+    new Array(n);
+
+  // -- σ bound: full RNA coiled inside RNAP (chain T trapped) ----------
+  if (ctx.sigmaPresent && n > 0) {
+    const turns = Math.min(2, n / 9);
+    const coilR = 8;
+    const zSpan = Math.min(12, n * 0.6);
+    for (let k = 0; k < n; k++) {
+      const angle = (k / Math.max(n, 1)) * turns * 2 * Math.PI;
+      out[k] = {
+        pos: [
+          ctx.rnapCenter[0] + coilR * Math.cos(angle),
+          ctx.rnapCenter[1] + coilR * Math.sin(angle),
+          ctx.rnapCenter[2] - zSpan / 2 + (k / Math.max(n - 1, 1)) * zSpan,
+        ],
+        chain: "T",
+      };
+    }
+    return out;
+  }
+
+  // -- σ released: chain-T hybrid at template positions + chain-R tail -
+  const hybridStart = ctx.showHybrid ? n - ctx.effectiveHybridLen : n;
+
+  // Hybrid bases (k = hybridStart .. n - 1) at template strand positions
+  // inside the bubble, with a small −Y offset so they don't co-render
+  // with the template spheres.
+  for (let k = hybridStart; k < n; k++) {
+    const offsetFrom3 = (n - 1) - k; // 0 = 3′-most base
+    const tmplIdx = ctx.bubbleHiIdx - offsetFrom3;
+    const tmplPt =
+      tmplIdx >= 0 && tmplIdx < ctx.backbone.length
+        ? ctx.backbone[tmplIdx]
+        : ctx.backbone[ctx.bubbleHiIdx];
+    const [tx, ty, tz] = strandPosition(
+      tmplPt, -1, ctx.bubbleLoIdx, ctx.bubbleHiIdx,
+    );
+    out[k] = { pos: [tx, ty - 4, tz], chain: "T" };
+  }
+
+  // Chain-R tail anchor — next to the hybrid 5′ end when the hybrid
+  // is shown, otherwise the standard exit-channel position (which
+  // already incorporates the −X drift during detachment).
+  let tailAnchor: [number, number, number];
+  if (ctx.showHybrid) {
+    const hybrid5Idx = Math.max(
+      0,
+      Math.min(
+        ctx.bubbleHiIdx - (ctx.effectiveHybridLen - 1),
+        ctx.backbone.length - 1,
+      ),
+    );
+    const hybrid5Pt = ctx.backbone[hybrid5Idx];
+    const [hx, hy, hz] = strandPosition(
+      hybrid5Pt, -1, ctx.bubbleLoIdx, ctx.bubbleHiIdx,
+    );
+    tailAnchor = [
+      hx + RNA_EXIT_STEP_X,
+      hy - 4 + RNA_EXIT_STEP_Y,
+      hz + RNA_EXIT_STEP_Z,
+    ];
+  } else {
+    tailAnchor = ctx.rnaAnchor;
+  }
+
+  // Tail: bases 0..hybridStart-1 along the 45° arm, 3′-most base at
+  // tailAnchor and earlier bases stepping further back in (-1.6, -1.6,
+  // -2.4) Å increments.
+  for (let k = 0; k < hybridStart; k++) {
+    const armStep = (hybridStart - 1) - k;
+    out[k] = {
+      pos: [
+        tailAnchor[0] + RNA_EXIT_STEP_X * armStep,
+        tailAnchor[1] + RNA_EXIT_STEP_Y * armStep,
+        tailAnchor[2] + RNA_EXIT_STEP_Z * armStep,
+      ],
+      chain: "R",
+    };
+  }
+
+  return out;
+}
+
+/**
+ * Build the per-base RNA position table for one snapshot.  Returns one
+ * entry per RNA index (5′→3′) with scene-coord position, chain
+ * routing, and per-base weight (used by chain H opacity).
+ *
+ * Phases:
+ *   • σ bound, σ released without hairpin → identical to the original
+ *     three-block emission (single source of truth).
+ *   • hairpin_forming → loop bases zip to hairpin target first, stems
+ *     follow; 5′ tail re-anchors on the lerped stem5 base each frame
+ *     so the strand stays unbroken.
+ *   • detaching with manifest.terminator → hairpin held at F = 1; the
+ *     existing bubble-collapse animation handles the U-tract melt.
+ */
+function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
+  const rna = ctx.snapshot.rna_sequence;
+  const n = rna.length;
+  if (n === 0) return [];
+
+  const homes = computeHomePositions(ctx);
+  const out: RnaBasePos[] = new Array(n);
+
+  // Default routing — identical to the home computation.
+  for (let k = 0; k < n; k++) {
+    out[k] = { pos: homes[k].pos, chain: homes[k].chain, weight: 0 };
+  }
+
+  // U-tract chain re-routing (chain T → chain U) — applied for runs
+  // with a terminator annotation as soon as the U-tract has been
+  // transcribed.  Same gate the SequencePanel uses (`termVisible`)
+  // for showing terminator highlights.  Re-routing happens whether or
+  // not the hairpin is folding, so the U-tract is pink throughout the
+  // post-σ-release portion of the run, matching the panel's pink
+  // `term-utract` highlight.
+  const term = ctx.manifest.terminator;
+  if (term && term.u_tract_end > term.u_tract_start && n >= term.stem3_start) {
+    const uLo = term.u_tract_start;
+    const uHi = Math.min(term.u_tract_end, n);
+    for (let k = uLo; k < uHi; k++) {
+      // Don't override the hairpin chain — bases in the stem range
+      // get chain H below.  U-tract is by definition 3′ of stem3, so
+      // there's no overlap with the stem range, but check defensively.
+      if (out[k] && out[k].chain === "T") {
+        out[k].chain = "U";
+      }
+    }
+  }
+
+  // Hairpin overlay only meaningful after σ has released and the
+  // engine has emitted a terminator annotation.  Keep behaviour
+  // unchanged on σ-bound frames or unannotated runs.
+  if (ctx.sigmaPresent) return out;
+  const F = computeHairpinFold(ctx.manifest, ctx.snapshot);
+  if (F <= 0) return out;
+  if (!term) return out;
+
+  // Anchor selection — place the hairpin's local-frame origin so the
+  // stem3 3′-end base (k = stem3_end − 1) sits exactly one nt-spacing
+  // back along the chain-R exit-arm direction from the U-tract first
+  // base (k = stem3_end).  This makes the stem3 → U-tract junction
+  // gap exactly one STEP magnitude (~3.3 Å), matching the 5′ tail to
+  // stem5 attachment gap; both junctions read as the same one-nt
+  // distance.  Falls back to stem3-3′-end home if the U-tract first
+  // base isn't computable (e.g. no U-tract or run terminated early).
+  //
+  // Local frame: stem3 3′-end sits at local (0, -D/2, 0), so anchor =
+  // (target stem3 3′-end position) + (0, +D/2, 0).
+  const stem3LastIdx = term.stem3_end - 1;
+  const uTractFirstHome = homes[term.stem3_end]?.pos;
+  const stem3LastHome = homes[stem3LastIdx]?.pos;
+  let anchor: [number, number, number];
+  if (uTractFirstHome) {
+    // Place stem3-3′-end at uTractFirstHome + STEP (one nt back along
+    // the exit arm).  Anchor offsets that by (0, +D/2, 0) so the
+    // stem3-3′-end at local (0, -D/2, 0) lands on the desired spot.
+    anchor = [
+      uTractFirstHome[0] + RNA_EXIT_STEP_X,
+      uTractFirstHome[1] + RNA_EXIT_STEP_Y + HAIRPIN_STEM_INTERARM_A / 2,
+      uTractFirstHome[2] + RNA_EXIT_STEP_Z,
+    ];
+  } else if (stem3LastHome) {
+    anchor = [
+      stem3LastHome[0],
+      stem3LastHome[1] + HAIRPIN_STEM_INTERARM_A / 2,
+      stem3LastHome[2],
+    ];
+  } else {
+    anchor = ctx.rnaAnchor;
+  }
+
+  const targets = getHairpinTargets(ctx.manifest, anchor);
+  if (!targets) return out;
+  if (targets.stemHi > n) return out; // run terminated before stem fully transcribed
+
+  // Lerp each stem/loop base from its home to its hairpin target.
+  for (let k = targets.stemLo; k < targets.stemHi; k++) {
+    const target = targets.byIndex.get(k);
+    if (!target) continue;
+    const w = baseHairpinWeight(k, F, targets);
+    const home = homes[k].pos;
+    out[k] = {
+      pos: [
+        home[0] * (1 - w) + target[0] * w,
+        home[1] * (1 - w) + target[1] * w,
+        home[2] * (1 - w) + target[2] * w,
+      ],
+      chain: "H",
+      weight: w,
+    };
+  }
+
+  // Re-anchor the 5′ tail (k < stemLo) on the stem5 base's *current*
+  // (lerped) position, walking back along the exit-arm direction so
+  // adjacent k indices stay close.  Bases whose lerp moved them onto
+  // the hairpin pull the tail in continuously.
+  if (targets.stemLo > 0) {
+    const stem5Pos = out[targets.stemLo].pos;
+    for (let k = targets.stemLo - 1; k >= 0; k--) {
+      const armStep = targets.stemLo - k;
+      out[k] = {
+        pos: [
+          stem5Pos[0] + RNA_EXIT_STEP_X * armStep,
+          stem5Pos[1] + RNA_EXIT_STEP_Y * armStep,
+          stem5Pos[2] + RNA_EXIT_STEP_Z * armStep,
+        ],
+        chain: "R",
+        weight: 0,
+      };
+    }
+  }
+
+  return out;
+}
 
 // -------------------------------------------------------------------------
 // Builder
@@ -1003,145 +1482,72 @@ class SchematicBuilder implements GeometryBuilder {
       : 0;
     const showHybrid = !sigmaPresent && hasBubble && effectiveHybridLen > 0;
 
-    if (sigmaPresent && rna.length > 0) {
-      // -- σ bound: full RNA coiled inside RNAP --------------------------
+    // ----------------------------------------------------------------
+    // RNA emission — single pass through the per-base position table.
+    //
+    // `computeRnaBasePositions` returns one entry per RNA index k with
+    // a final scene position and a chain assignment (T / R / H).  This
+    // replaces the three independent blocks (trapped coil / chain-T
+    // hybrid / chain-R tail) the renderer used pre-2026-05-02 with a
+    // single source of truth so the strand stays continuous through
+    // hairpin folding and detachment.
+    //
+    // Chain choice is per-base, so we maintain three `prev*` serial
+    // trackers and bond each atom to the previous atom *on the same
+    // chain*.  Cross-chain visual continuity comes from proximity
+    // (adjacent k indices have positions within ≈ 3.3 Å of each other
+    // by construction) — same model the pre-refactor render used.
+    // ----------------------------------------------------------------
+    if (rna.length > 0) {
+      const rnaPositions = computeRnaBasePositions({
+        manifest, snapshot,
+        rnapCenter,
+        backbone,
+        bubbleLoIdx,
+        bubbleHiIdx,
+        hasBubble,
+        sigmaPresent,
+        effectiveHybridLen,
+        showHybrid,
+        rnaAnchor,
+        rnaAnchorBound,
+      });
+
       let prevT: number | null = null;
+      let prevR: number | null = null;
+      let prevH: number | null = null;
+      let prevU: number | null = null;
       for (let k = 0; k < rna.length; k++) {
+        const entry = rnaPositions[k];
+        if (!entry) continue;
         const base = rna[k];
-        const turns = Math.min(2, rna.length / 9);
-        const angle = (k / Math.max(rna.length, 1)) * turns * 2 * Math.PI;
-        const coilR = 8;
-        const zSpan = Math.min(12, rna.length * 0.6);
-        const x = rnapCenter[0] + coilR * Math.cos(angle);
-        const y = rnapCenter[1] + coilR * Math.sin(angle);
-        const z = rnapCenter[2] - zSpan / 2 + (k / Math.max(rna.length - 1, 1)) * zSpan;
+        const [x, y, z] = entry.pos;
         const atom: Atom = {
-          elem: "O",
+          // Chain-T uses oxygen elem (matches pre-refactor; styles.ts
+          // colour-keys on chain not element).  Chain R/H/U use
+          // phosphorus — same convention as the pre-refactor chain R.
+          elem: entry.chain === "T" ? "O" : "P",
           x, y, z,
           resn: rnaResn(base),
           resi: k + 1,
-          chain: "T",
+          chain: entry.chain,
           serial: serial++,
           atomName: "P",
         };
-        if (prevT !== null) { atom.bonds = [prevT]; atom.bondOrder = [1]; }
-        prevT = atom.serial;
-        atoms.push(atom);
-      }
-    } else if (showHybrid) {
-      // -- σ released, not detaching: hybrid bases at template positions -
-      let prevT: number | null = null;
-      // Hybrid = 3′ end of RNA, paired with template at the active-site
-      // end of the bubble.  The last `effectiveHybridLen` bubble bases
-      // on the template strand carry the hybrid; we offset slightly −Y
-      // so the hybrid sits between the template (at y ≈ −6) and β
-      // (at y = −22), on the path toward the exit anchor.
-      for (let k = rna.length - effectiveHybridLen; k < rna.length; k++) {
-        const base = rna[k];
-        const offsetFrom3 = (rna.length - 1) - k;     // 0 for 3′-most base
-        const tmplIdx = bubbleHiIdx - offsetFrom3;
-        const tmplPt =
-          tmplIdx >= 0 && tmplIdx < backbone.length
-            ? backbone[tmplIdx]
-            : backbone[bubbleHiIdx];
-        const [tx, ty, tz] = strandPosition(tmplPt, -1, bubbleLoIdx, bubbleHiIdx);
-        const atom: Atom = {
-          elem: "O",
-          x: tx,
-          y: ty - 4,         // hybrid between template and β / exit channel
-          z: tz,
-          resn: rnaResn(base),
-          resi: k + 1,
-          chain: "T",
-          serial: serial++,
-          atomName: "P",
-        };
-        if (prevT !== null) { atom.bonds = [prevT]; atom.bondOrder = [1]; }
-        prevT = atom.serial;
-        atoms.push(atom);
-      }
-    }
-
-    // Chain R — exiting RNA, only after σ has released.
-    //
-    // Range:
-    //   • Normal post-σ-release: bases 0 .. rna.length − effectiveHybridLen − 1.
-    //     The 3′ end is in the hybrid (chain T) and the 5′ tail spools out
-    //     through the exit channel (chain R).
-    //   • Detaching: the entire RNA goes on chain R because the hybrid has
-    //     melted (all RNA is released).
-    //
-    // Anchor:
-    //   • showHybrid → tail anchors next to the **5′ end of the hybrid**
-    //     (the most-upstream hybrid base inside the bubble) so the tail
-    //     visibly emerges adjacent to the hybrid's upstream end, where
-    //     the RNA actually exits in the elongation complex.  The hybrid
-    //     5′ end sits at the template position of coord
-    //     (bubbleHiIdx − effectiveHybridLen + 1) with the same −4 Y
-    //     offset the hybrid spheres use.
-    //   • detaching → the hybrid is gone, so anchor at the standard
-    //     exit-channel position (rnaAnchorBound) and let the entire RNA
-    //     sweep out from there.
-    //
-    // Direction: each base steps by (−1.6, −1.6, −2.4) Å — a ~45° sweep
-    // *downward* (−Y) and *toward the camera* (−X scene = +Z screen depth
-    // after the canonical 90° camera rotation), with the longest
-    // component along −Z (back upstream).  Step magnitude is √(1.6² +
-    // 1.6² + 2.4²) ≈ 3.3 Å/nt = standard single-strand RNA spacing.
-    // Sweeping out below the body keeps the tail visually distinct from
-    // the upstream DNA duplex (which lies along the helix axis at y = 0).
-    {
-      const tailEnd = showHybrid ? rna.length - effectiveHybridLen : rna.length;
-      if (!sigmaPresent && tailEnd > 0) {
-        const STEP_X = -1.6;
-        const STEP_Y = -1.6;
-        const STEP_Z = -2.4;
-
-        // Determine where the tail's 3′ end (the base k = tailEnd − 1)
-        // anchors.  When the hybrid is being shown, anchor right at the
-        // hybrid 5′ end (so the tail visibly continues out from it).
-        // Otherwise (detaching), use the standard exit-channel position.
-        let tailAnchor: [number, number, number];
-        if (showHybrid) {
-          const hybrid5Idx = Math.max(
-            0,
-            Math.min(bubbleHiIdx - (effectiveHybridLen - 1), backbone.length - 1),
-          );
-          const hybrid5Pt = backbone[hybrid5Idx];
-          const [hx, hy, hz] = strandPosition(
-            hybrid5Pt, -1, bubbleLoIdx, bubbleHiIdx,
-          );
-          // Hybrid 5′ end position (same −4 Y offset as the hybrid spheres),
-          // plus one STEP outward so the first tail sphere doesn't sit on
-          // top of the hybrid 5′-most sphere.
-          tailAnchor = [hx + STEP_X, hy - 4 + STEP_Y, hz + STEP_Z];
-        } else {
-          tailAnchor = rnaAnchor;
-        }
-
-        let prevR: number | null = null;
-        for (let k = 0; k < tailEnd; k++) {
-          const base = rna[k];
-          // RNA is laid out 5′ → 3′; the 3′-most chain-R base
-          // (k = tailEnd − 1) sits at tailAnchor (next to the hybrid 5′),
-          // and earlier bases march further along the 45° arm.
-          const armStep = (tailEnd - 1) - k;
-          const x = tailAnchor[0] + STEP_X * armStep;
-          const y = tailAnchor[1] + STEP_Y * armStep;
-          const z = tailAnchor[2] + STEP_Z * armStep;
-          const atom: Atom = {
-            elem: "P",
-            x, y, z,
-            resn: rnaResn(base),
-            resi: k + 1,
-            chain: "R",
-            serial: serial++,
-            atomName: "P",
-          };
+        if (entry.chain === "T") {
+          if (prevT !== null) { atom.bonds = [prevT]; atom.bondOrder = [1]; }
+          prevT = atom.serial;
+        } else if (entry.chain === "R") {
           if (prevR !== null) { atom.bonds = [prevR]; atom.bondOrder = [1]; }
           prevR = atom.serial;
-          atoms.push(atom);
+        } else if (entry.chain === "H") {
+          if (prevH !== null) { atom.bonds = [prevH]; atom.bondOrder = [1]; }
+          prevH = atom.serial;
+        } else /* "U" */ {
+          if (prevU !== null) { atom.bonds = [prevU]; atom.bondOrder = [1]; }
+          prevU = atom.serial;
         }
+        atoms.push(atom);
       }
     }
 

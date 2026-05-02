@@ -176,7 +176,7 @@ export function Viewer3D({ manifest, snapshot, mode, options, theme }: Viewer3DP
     }> = [
       { key: "coding",   label: "coding (+)",  color: "#3b82f6", dynamicChains: ["A"],          pdbChains: [] },
       { key: "template", label: "template (-)", color: "#ef4444", dynamicChains: ["B"],          pdbChains: [] },
-      { key: "rna",      label: "nascent RNA",  color: "#10b981", dynamicChains: ["R", "T", "X"], pdbChains: [] },
+      { key: "rna",      label: "nascent RNA",  color: "#10b981", dynamicChains: ["R", "T", "H", "U", "X"], pdbChains: [] },
     ];
     if (options.rnap === "mesh") {
       items.push({ key: "alpha",     label: "α₂", color: "#94a3b8", dynamicChains: ["Y", "Z"], pdbChains: ["A", "B"], title: "RNAP α subunits — assembly platform" });

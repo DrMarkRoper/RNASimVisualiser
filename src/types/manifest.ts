@@ -13,7 +13,7 @@ import { z } from "zod";
 /* ------------------------------------------------------------------ */
 
 export const PHASES = [
-  "approaching",   // σ+core assembling & holoenzyme descending to promoter
+  "approaching",       // σ+core assembling & holoenzyme descending to promoter
   "initiation",
   "open_complex",
   "scrunching",
@@ -21,7 +21,8 @@ export const PHASES = [
   "paused",
   "backtracked",
   "terminated",
-  "detaching",     // RNAP lifting off, bubble collapsing, RNA releasing
+  "hairpin_forming",   // RNA hairpin folding in exit channel; bubble + hybrid intact
+  "detaching",         // RNAP lifting off, bubble collapsing, RNA releasing
   "aborted",
 ] as const;
 

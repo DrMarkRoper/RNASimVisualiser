@@ -761,6 +761,30 @@ code, pre { font-family: var(--mono); }
 .rna-base.rna-trapped  { color: #f59e0b; background: rgba(245, 158, 11, 0.18); }
 .rna-gap { color: transparent; }
 
+/* Terminator-role highlights on the RNA track.  The DNA track already
+   uses these classes on `.seq-base`, but the `.rna-base.rna-*` rules
+   above mask the loop background via the cascade.  Re-declare the
+   term-* highlights AFTER the rna-* state colours so RNA bases that
+   are part of the stem / loop / U-tract carry the violet hairpin
+   palette and the 3D hairpin and the panel agree visually.  Stem
+   borders and U-tract underline already stack atop the rna-*
+   background; here we override the loop fill specifically. */
+.rna-base.term-stem5 {
+  background: rgba(124, 58, 237, 0.22);
+  border-top: 1px solid #7c3aed;
+}
+.rna-base.term-stem3 {
+  background: rgba(124, 58, 237, 0.22);
+  border-bottom: 1px solid #7c3aed;
+}
+.rna-base.term-loop {
+  background: rgba(167, 139, 250, 0.32);
+  color: #c4b5fd;
+}
+.rna-base.term-utract {
+  box-shadow: inset 0 -2px 0 0 #f472b6;
+}
+
 .rna-summary { margin-top: 4px; }
 .rna-summary h4 { margin: 0 0 4px; font-size: 12px; color: var(--fg-muted); }
 .rna-seq {
