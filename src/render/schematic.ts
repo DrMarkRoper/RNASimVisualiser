@@ -80,8 +80,16 @@ const LIFT_HEIGHT_ANG = 90; // Å above normal Y-position
 
 const CODING_WRAP_OFFSET = 22;       // Å — upward bulge of coding strand at bubble midpoint
 const TEMPLATE_DIP_OFFSET = 6;       // Å — downward dip of template strand at bubble midpoint
-const RNA_EXIT_Y_OFFSET = 28;        // Å — RNA exit anchor lift above DNA axis
-const RNA_EXIT_X_OFFSET = -5;        // Å — RNA exit anchor pulled back from rnapCenter
+// RNA exit channel — emerges between β (bottom of cleft, y = −22) and the
+// α-dimer (back of body, y ≈ −3, x ≈ −12), running toward the rear of the
+// holoenzyme.  The user's reading of Santangelo 2011 Fig 1 places the
+// channel on the β / α side of RNAP, NOT above β′ as the previous
+// (+Y = +28) anchor did.  After the β/β′ swap (β′ now on top, β on
+// bottom), the +Y side is the β′-clamp — wrong for the exit.  New anchor:
+// pulled back in −X (toward α-dimer) and slightly below centre in −Y so
+// the arm exits through the gap between β and α.
+const RNA_EXIT_X_OFFSET = -12;       // Å — RNA exit anchor at α-side back face
+const RNA_EXIT_Y_OFFSET = -10;       // Å — between β (y=-22) and α (y≈-3), ~midway
 // Physical Z extent of the open-complex bubble — held roughly constant
 // by RNAP body geometry.  At standard B-helix rise (3.4 Å/bp) this fits
 // 13 bp at natural spacing; during scrunching the same extent holds 18+
@@ -639,14 +647,41 @@ class SchematicBuilder implements GeometryBuilder {
     const { liftFactor, assembleFraction, detachFraction } = computeAnimationFractions(manifest, snapshot);
     const liftY = LIFT_HEIGHT_ANG * liftFactor;
 
-    // RNAP body anchor — at the centre of the DNA bend.  Z-coordinate
-    // matches the bend centre derived in computeBackbone: the bend is
-    // anchored at the bubble's upstream edge (which is held by σ⁷⁰ during
-    // initiation and slides with the bubble during elongation).  Pinning
-    // off bubble_upstream rather than `position` is what gives scrunching
-    // its biology — the upstream edge stays put while extra bases pile in,
-    // so the bend (and rnapCenter) doesn't move during scrunching frames.
-    const rnapAxisZ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
+    // RNAP body anchor — at the active site (catalytic centre), so the
+    // body envelopes the bubble around the active site rather than
+    // sitting ~11 nt upstream of it (which is what bubble_upstream
+    // anchoring did).
+    //
+    // Active-site Z derivation:
+    //   • If the active site is inside the bubble (the normal case for
+    //     elongation, scrunching, paused, backtracked, etc.) we read its
+    //     Z off the bubble parameterisation directly:
+    //       z = bubbleStartZ + (positionIdx − bubbleLoIdx) / bubbleSize
+    //                          · BUBBLE_PHYSICAL_WIDTH
+    //     During scrunching this stays at the bubble's downstream end
+    //     (bubble_downstream = position, so positionIdx = bubbleHiIdx,
+    //     t = 1.0); since that downstream-end Z is itself fixed
+    //     (bubbleStartZ + BUBBLE_PHYSICAL_WIDTH) when bubble_upstream
+    //     is held by σ⁷⁰, RNAP doesn't move during scrunching.
+    //   • If there's no bubble (approaching / detaching) we fall back to
+    //     the linear position-based Z so RNAP descends onto the TSS during
+    //     approach and lifts off the last elongation position during
+    //     detach.
+    const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, boneLen);
+    const isBubblePresent =
+      bubbleHiIdx > bubbleLoIdx && snapshot.phase !== "detaching";
+    let rnapAxisZ: number;
+    if (
+      isBubblePresent &&
+      positionIdx >= bubbleLoIdx &&
+      positionIdx <= bubbleHiIdx
+    ) {
+      const bubbleStartZ_ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
+      const t = (positionIdx - bubbleLoIdx) / Math.max(1, bubbleHiIdx - bubbleLoIdx);
+      rnapAxisZ = bubbleStartZ_ + t * BUBBLE_PHYSICAL_WIDTH;
+    } else {
+      rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
+    }
     const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
     // ----------------------------------------------------------------
@@ -967,10 +1002,15 @@ class SchematicBuilder implements GeometryBuilder {
             ? backbone[tmplIdx]
             : backbone[bubbleHiIdx];
         const [tx, ty, tz] = strandPosition(tmplPt, -1, bubbleLoIdx, bubbleHiIdx);
+        // Hybrid sits BELOW the template (toward β at y = −22, on the same
+        // side as the RNA exit channel between β and α).  This places the
+        // 3′ end of the RNA on the path to the exit anchor, so the hybrid
+        // → exit-thread transition reads as a continuous channel rather
+        // than the RNA jumping from above the template to below the body.
         const atom: Atom = {
           elem: "O",
           x: tx,
-          y: ty + 4,         // small +Y lift so hybrid is visible above template
+          y: ty - 4,         // small −Y dip so hybrid sits between template and β
           z: tz,
           resn: rnaResn(base),
           resi: k + 1,
