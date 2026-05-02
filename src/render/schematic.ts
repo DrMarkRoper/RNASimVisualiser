@@ -37,6 +37,12 @@ import { getSigma70Presence } from "../utils/sigma";
 const RISE_PER_BP = 3.4;          // Å
 const TWIST_PER_BP = (36 * Math.PI) / 180; // rad
 const HELIX_RADIUS = 10;          // Å (visually inflated for readability)
+/** Re-export for atomic.ts so the atomic-mode template-strand C1'
+ *  override + 3' phantom-residue extrapolation can use the same
+ *  helix parameters the schematic builds. */
+export const SCHEMATIC_HELIX_RADIUS = HELIX_RADIUS;
+export const SCHEMATIC_RISE_PER_BP  = RISE_PER_BP;
+export const SCHEMATIC_TWIST_PER_BP = TWIST_PER_BP;
 
 // RNA:DNA hybrid length — bases 3′-ward of this from the RNAP active site
 // are inside the transcription bubble.  Bases upstream (5′ end of RNA) are
@@ -165,6 +171,17 @@ interface BaseAxisPoint {
    *  pointing *outward* from the bend centre.  This is the direction the
    *  coding strand bulges when it wraps over the RNAP body. */
   radial: [number, number, number];
+  /** Per-strand 5'→3' tangent in scene coordinates, used by the atomic-mode
+   *  renderer to orient each residue's atom template along the actual
+   *  strand path.  Outside the bubble both strands lie on a straight +Z
+   *  helix so both tangents = +Z (coding) and -Z (template, antiparallel).
+   *  Inside the bubble the coding strand arcs +Y and the template dips -Y;
+   *  these tangents are then finite-differenced from the per-base
+   *  strandPosition() output so the residue atoms follow the bulge / dip.
+   *  Schematic mode ignores these fields (one-sphere-per-base doesn't
+   *  need a tangent). */
+  strandTangentCoding:   [number, number, number];
+  strandTangentTemplate: [number, number, number];
   /** True if base i is inside the bubble (strands separated). */
   melted: boolean;
 }
@@ -256,9 +273,61 @@ function computeBackbone(
       axis = [0, 0, z];
     }
 
-    out.push({ idx: i, coord, axis, twist, tangent, radial, melted });
+    out.push({
+      idx: i, coord, axis, twist, tangent, radial,
+      // Default tangents — both strands lie on +Z (coding) / -Z (template,
+      // antiparallel) outside the bubble.  Inside the bubble we'll
+      // overwrite these with finite-differenced strand-position tangents
+      // in the second pass below.
+      strandTangentCoding:   [0, 0, 1],
+      strandTangentTemplate: [0, 0, -1],
+      melted,
+    });
+  }
+
+  // Second pass: finite-difference the strand position to compute
+  // per-strand tangents inside the bubble.  Outside the bubble the
+  // strands are on the straight helix and the +Z / -Z defaults are
+  // exact, so we only patch the bubble interior.  Atomic mode reads
+  // these to orient each residue's atom template along the actual
+  // strand path; schematic mode ignores them.
+  if (out.length >= 2) {
+    for (let i = 0; i < out.length; i++) {
+      const pt = out[i];
+      if (!pt.melted) continue;
+      // Use central difference where possible; fall back to one-sided
+      // at the bubble boundary.  strandPosition is pure (no side
+      // effects) so we can call it three times here cheaply.
+      const before = out[Math.max(0, i - 1)];
+      const after  = out[Math.min(out.length - 1, i + 1)];
+      // Coding tangent.
+      const pBeforeC = strandPosition(before, +1, bubbleLoIdx, bubbleHiIdx);
+      const pAfterC  = strandPosition(after,  +1, bubbleLoIdx, bubbleHiIdx);
+      pt.strandTangentCoding = unitVec([
+        pAfterC[0] - pBeforeC[0],
+        pAfterC[1] - pBeforeC[1],
+        pAfterC[2] - pBeforeC[2],
+      ]);
+      // Template tangent — finite-diff the template path then NEGATE
+      // (template runs antiparallel to coding, so its 5'→3' tangent
+      // points opposite the index-increasing direction).
+      const pBeforeT = strandPosition(before, -1, bubbleLoIdx, bubbleHiIdx);
+      const pAfterT  = strandPosition(after,  -1, bubbleLoIdx, bubbleHiIdx);
+      const tplFD = unitVec([
+        pAfterT[0] - pBeforeT[0],
+        pAfterT[1] - pBeforeT[1],
+        pAfterT[2] - pBeforeT[2],
+      ]);
+      pt.strandTangentTemplate = [-tplFD[0], -tplFD[1], -tplFD[2]];
+    }
   }
   return out;
+}
+
+/** Normalise a 3-vector; returns a zero vector if input is degenerate. */
+function unitVec(v: [number, number, number]): [number, number, number] {
+  const m = Math.hypot(v[0], v[1], v[2]);
+  return m > 1e-9 ? [v[0] / m, v[1] / m, v[2] / m] : [0, 0, 1];
 }
 
 /**
@@ -874,6 +943,12 @@ interface RnaBasePos {
   chain: RnaChain;
   /** 0..1 — used to fade chain H in as the hairpin folds. */
   weight: number;
+  /** Per-base 5'→3' tangent in scene coordinates.  Used by the atomic-
+   *  mode renderer to orient each RNA residue's atom template along the
+   *  actual chain path (parallel to coding inside the hybrid; along
+   *  RNA_EXIT_STEP for chain R; along the hairpin local frame's z_loc
+   *  for chain H).  Schematic mode ignores this field. */
+  tangent: [number, number, number];
 }
 
 interface RnaContext {
@@ -1005,9 +1080,13 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
   const homes = computeHomePositions(ctx);
   const out: RnaBasePos[] = new Array(n);
 
-  // Default routing — identical to the home computation.
+  // Default routing — identical to the home computation.  Tangents are
+  // a placeholder ([0,0,1]); the final pass at the end of this function
+  // overwrites them with finite-differenced strand-direction tangents
+  // so atomic mode can orient each residue's atom template along the
+  // actual chain path.
   for (let k = 0; k < n; k++) {
-    out[k] = { pos: homes[k].pos, chain: homes[k].chain, weight: 0 };
+    out[k] = { pos: homes[k].pos, chain: homes[k].chain, weight: 0, tangent: [0, 0, 1] };
   }
 
   // U-tract chain re-routing (chain T or R → chain U) — applied for
@@ -1097,6 +1176,7 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
       ],
       chain: "H",
       weight: w,
+      tangent: [0, 0, 1], // placeholder — overwritten by final-pass below
     };
   }
 
@@ -1130,11 +1210,48 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
         ],
         chain: "R",
         weight: 0,
+        tangent: [0, 0, 1], // placeholder — overwritten by final-pass below
       };
     }
   }
 
   return out;
+}
+
+/**
+ * Populate the `tangent` field on each RnaBasePos entry by finite-
+ * differencing the position array.  Called once by `build()` after
+ * `computeRnaBasePositions` so the placeholder tangents created above
+ * are overwritten with values that follow the actual strand path —
+ * including across hairpin folds and chain-switch junctions.
+ *
+ * Edge cases:
+ *   • For the 5' end (k = 0) we use a forward difference.
+ *   • For the 3' end (k = n-1) we use a backward difference.
+ *   • For everything else, central difference.
+ *   • Singular points (zero-length difference) get a sane default
+ *     based on the chain identity.
+ *
+ * Schematic mode does not read tangents; this is purely for the
+ * atomic emitter.  Cost is one extra O(n) pass over typical
+ * transcripts of ≤ 100 nt.
+ */
+function computeRnaTangents(out: RnaBasePos[]): void {
+  const n = out.length;
+  if (n === 0) return;
+  if (n === 1) {
+    // Only one base — no neighbour to diff against.  Default to +Z.
+    out[0].tangent = [0, 0, 1];
+    return;
+  }
+  for (let k = 0; k < n; k++) {
+    const prev = out[Math.max(0, k - 1)].pos;
+    const next = out[Math.min(n - 1, k + 1)].pos;
+    const dx = next[0] - prev[0];
+    const dy = next[1] - prev[1];
+    const dz = next[2] - prev[2];
+    out[k].tangent = unitVec([dx, dy, dz]);
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -1260,13 +1377,21 @@ class SchematicBuilder implements GeometryBuilder {
       atoms.push(atom);
     }
 
+    // Template strand residue lookup — `template_strand` is stored 5'→3'
+    // (Biopython convention), so `template[i]` is the complement of
+    // `coding[len-1-i]`, NOT of `coding[i]`.  We want the chain B
+    // sphere at scene-Z position i to show the base PAIRED WITH coding[i],
+    // i.e. `template[len-1-i]`.  Same lookup the SequencePanel's
+    // `templateAligned = reverse(template)` helper uses; previously
+    // omitted in the schematic which silently mislabelled hover
+    // tooltips for a year.  See publications.md R11.
     let prevB: number | null = null;
     for (const pt of backbone) {
       const [x0, y0, z0] = strandPosition(pt, -1, bubbleLoIdx, bubbleHiIdx);
       const atom: Atom = {
         elem: "P",
         x: x0, y: y0, z: z0,
-        resn: dnaResn(template[pt.idx]),
+        resn: dnaResn(template[len - 1 - pt.idx]),
         resi: pt.idx + 1,
         chain: "B",
         serial: serial++,
@@ -1548,6 +1673,10 @@ class SchematicBuilder implements GeometryBuilder {
         rnaAnchor,
         rnaAnchorBound,
       });
+      // Atomic-mode prep: finite-difference per-base tangents off the
+      // final position array.  Schematic mode ignores the tangent
+      // field; atomic mode reads it via the RnaBasePos exported below.
+      computeRnaTangents(rnaPositions);
 
       let prevT: number | null = null;
       let prevR: number | null = null;
@@ -1783,4 +1912,177 @@ class SchematicBuilder implements GeometryBuilder {
 
 export function createSchematicBuilder(): GeometryBuilder {
   return new SchematicBuilder();
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers exposed for the atomic-mode renderer                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-frame strand state — exactly what the atomic renderer needs to
+ * lay out per-residue atom templates.  Includes:
+ *  - the `BaseAxisPoint` array with per-base position, twist, and
+ *    per-strand tangent;
+ *  - bubble bounds (so the atomic emitter can call `strandPosition`
+ *    with the same bounds the schematic used);
+ *  - the RNA per-base position table (with chain routing + tangent).
+ *
+ * This is what the original schematic.build() consumes internally —
+ * we just expose it so atomic.ts doesn't have to duplicate the
+ * computation.  Cost: zero, both modes compute the same arrays once
+ * per frame.
+ */
+export interface StrandFrame {
+  backbone: BaseAxisPointPub[];
+  bubbleLoIdx: number;
+  bubbleHiIdx: number;
+  rnaPositions: RnaBasePosPub[];
+  rnapCenter: [number, number, number];
+}
+
+/** Public mirror of BaseAxisPoint so atomic.ts can read it without
+ *  the internal interface being broadened.  Keep in sync. */
+export interface BaseAxisPointPub {
+  idx: number;
+  coord: number;
+  axis: [number, number, number];
+  twist: number;
+  tangent: [number, number, number];
+  radial: [number, number, number];
+  strandTangentCoding:   [number, number, number];
+  strandTangentTemplate: [number, number, number];
+  melted: boolean;
+}
+
+export interface RnaBasePosPub {
+  pos: [number, number, number];
+  chain: "T" | "R" | "H" | "U";
+  weight: number;
+  tangent: [number, number, number];
+}
+
+/**
+ * Compute the strand state for a single snapshot.  Mirrors what
+ * SchematicBuilder.build() does internally up to the point where it
+ * starts emitting atoms.  Atomic mode then walks `backbone` for
+ * chains A_at / B_at and `rnaPositions` for chains R_at / T_at /
+ * H_at / U_at, emitting per-residue atom templates instead of
+ * single spheres.
+ */
+export function computeStrandFrame(
+  manifest: SimulationManifest,
+  snapshot: Snapshot,
+  _options: RenderOptions,
+): StrandFrame {
+  const tssIndex = manifest.sequence.tss_index;
+  const len = manifest.sequence.sequence_length;
+  const rawBubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, len);
+  const rawBubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
+
+  // Replicate the early-detach bubble-collapse override used in build().
+  const DETACH_BUBBLE_FRAMES = 5;
+  const INITIAL_DETACH_BUBBLE_BP = HYBRID_LEN_SCHEMATIC + 4;
+  let detachFrameCount = -1;
+  if (snapshot.phase === "detaching") {
+    const ranges = getPhaseRanges(manifest);
+    if (ranges.detach) {
+      detachFrameCount = snapshot.frame - ranges.detach.start;
+    }
+  }
+  let bubbleHiIdx = rawBubbleHiIdx;
+  if (snapshot.phase === "detaching") {
+    if (detachFrameCount >= 0 && detachFrameCount < DETACH_BUBBLE_FRAMES) {
+      const shrinkFactor = 1 - detachFrameCount / DETACH_BUBBLE_FRAMES;
+      const targetSize = Math.max(0, Math.floor(INITIAL_DETACH_BUBBLE_BP * shrinkFactor));
+      bubbleHiIdx = Math.min(rawBubbleHiIdx, rawBubbleLoIdx + targetSize);
+    } else {
+      bubbleHiIdx = rawBubbleLoIdx;
+    }
+  }
+  const bubbleLoIdx = rawBubbleLoIdx;
+  const bubbleSize = Math.max(1, bubbleHiIdx - bubbleLoIdx);
+
+  const backbone = computeBackbone(manifest, snapshot, bubbleLoIdx, bubbleHiIdx);
+
+  // RNAP centre + animation fractions — same logic as build().
+  const { liftFactor, detachFraction } = computeAnimationFractions(manifest, snapshot);
+  const liftY = LIFT_HEIGHT_ANG * liftFactor;
+  const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, backbone.length);
+  const hasBubble = bubbleHiIdx > bubbleLoIdx;
+  let rnapAxisZ: number;
+  if (
+    hasBubble &&
+    positionIdx >= bubbleLoIdx &&
+    positionIdx <= bubbleHiIdx
+  ) {
+    const bubbleStartZ_ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
+    const t = (positionIdx - bubbleLoIdx) / bubbleSize;
+    rnapAxisZ = bubbleStartZ_ + t * BUBBLE_PHYSICAL_WIDTH;
+  } else {
+    rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
+  }
+  const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
+
+  // RNA chain assignment + positions — mirror of build().
+  const presence = getSigma70Presence(manifest, snapshot);
+  const sigmaPresent = presence > 0.05;
+  const rna = snapshot.rna_sequence;
+  const baseHybridLen = Math.min(rna.length, HYBRID_LEN_SCHEMATIC);
+  const effectiveHybridLen = hasBubble ? Math.min(baseHybridLen, bubbleSize) : 0;
+  const showHybrid = !sigmaPresent && hasBubble && effectiveHybridLen > 0;
+  const rnaAnchorBound: [number, number, number] = [
+    rnapCenter[0] + RNA_EXIT_X_OFFSET,
+    rnapCenter[1] + RNA_EXIT_Y_OFFSET,
+    rnapCenter[2],
+  ];
+  const RNA_DRIFT_X = 50;
+  const rnaAnchor: [number, number, number] =
+    snapshot.phase === "detaching"
+      ? [
+          rnaAnchorBound[0] - RNA_DRIFT_X * detachFraction,
+          RNA_EXIT_Y_OFFSET,
+          rnaAnchorBound[2],
+        ]
+      : rnaAnchorBound;
+
+  let rnaPositions: RnaBasePos[] = [];
+  if (rna.length > 0) {
+    rnaPositions = computeRnaBasePositions({
+      manifest, snapshot,
+      rnapCenter,
+      backbone,
+      bubbleLoIdx,
+      bubbleHiIdx,
+      hasBubble,
+      sigmaPresent,
+      effectiveHybridLen,
+      showHybrid,
+      rnaAnchor,
+      rnaAnchorBound,
+    });
+    computeRnaTangents(rnaPositions);
+  }
+
+  return {
+    backbone,
+    bubbleLoIdx,
+    bubbleHiIdx,
+    rnaPositions,
+    rnapCenter,
+  };
+}
+
+/**
+ * Public version of `strandPosition` so atomic.ts can compute the
+ * exact same per-base scene anchor the schematic uses.  Atomic mode
+ * places the C1' of each residue at this position, then transforms
+ * the residue's atom template by the local frame.
+ */
+export function strandScenePosition(
+  pt: BaseAxisPointPub,
+  strandSign: 1 | -1,
+  bubbleLoIdx: number,
+  bubbleHiIdx: number,
+): [number, number, number] {
+  return strandPosition(pt as BaseAxisPoint, strandSign, bubbleLoIdx, bubbleHiIdx);
 }

@@ -12,6 +12,26 @@ import { useEffect, useRef, useState } from "react";
 export type NucleicMode = "schematic" | "atomic";
 export type ProteinMode = "schematic" | "mesh" | "atomic";
 
+/**
+ * How an *atomic-mode* nucleic-acid strand is drawn on screen.
+ * Only meaningful when at least one of `options.{coding,template,rna}`
+ * is set to `"atomic"`; if all three are `"schematic"`, the strand
+ * picks themselves determine the rendering and this field is ignored
+ * (the in-viewer pill is hidden in that case).
+ *
+ *  - `molecular` : per-residue heavy-atom detail — small spheres at
+ *                  every heavy atom + chunky stick bonds (backbone,
+ *                  sugar ring, base ring, glycosidic).  No backbone
+ *                  ribbon.
+ *  - `cartoon`   : phosphate-backbone ribbon only (smooth chunky bar
+ *                  traced through the P atoms).  No per-atom
+ *                  spheres / sticks.
+ *  - `both`      : molecular drawn over the cartoon ribbon.
+ *
+ * Toggled by the legend bar's representation pill (next to Labels).
+ */
+export type Representation = "molecular" | "cartoon" | "both";
+
 export interface RenderOptions {
   coding:   NucleicMode;
   template: NucleicMode;
@@ -19,6 +39,12 @@ export interface RenderOptions {
   /** σ⁷⁰ and W433 share a mode — W433 is a σ⁷⁰ region-2.3 residue. */
   sigma:    ProteinMode;
   rnap:     ProteinMode;
+  /** Atomic-mode strand representation.  Has no visual effect when
+   *  every strand pick is `"schematic"` (the per-strand spheres
+   *  render unconditionally in that case).  Default `cartoon` is the
+   *  least visually busy choice when the user first enables atomic
+   *  mode for a strand. */
+  representation: Representation;
 }
 
 export type RenderLabel = "schematic" | "atomic" | "mixed";
@@ -29,6 +55,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   rna:      "schematic",
   sigma:    "schematic",
   rnap:     "schematic",
+  representation: "cartoon",
 };
 
 const PROTEIN_MODES: ProteinMode[] = ["schematic", "mesh", "atomic"];
@@ -84,6 +111,7 @@ export function RenderOptionsButton({ options, onChange }: Props) {
 
   const setAllNucleic = (v: NucleicMode) => {
     onChange({
+      ...options,
       coding: v, template: v, rna: v,
       sigma: v, rnap: v,
     });

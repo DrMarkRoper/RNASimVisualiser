@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>atomic-mode pairing test — side-by-side</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, sans-serif; background: #0b1020; color: #ddd; height: 100vh; display: flex; flex-direction: column; }
+    .toolbar { padding: 10px 16px; background: #14213d; display: flex; gap: 12px; align-items: center; }
+    .toolbar h1 { margin: 0; font-size: 14px; font-weight: 600; }
+    .pill { display: inline-flex; border: 1px solid #3a4d6f; border-radius: 999px; overflow: hidden; }
+    .pill button { padding: 4px 12px; font-size: 12px; background: transparent; color: #aaa; border: 0; border-right: 1px solid #3a4d6f; cursor: pointer; font-family: inherit; }
+    .pill button:last-child { border-right: 0; }
+    .pill button.active { background: #f97316; color: #000; }
+    .pill button:hover:not(.active) { color: #fff; }
+    .panels { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .panel { position: relative; flex: 1; border-bottom: 1px solid #333; min-height: 0; }
+    .panel h2 { position: absolute; top: 8px; left: 8px; margin: 0; font-size: 13px; z-index: 10; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 3px; }
+    .canvas-host { position: absolute; inset: 0; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.0/3Dmol-min.js"></script>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>Atomic representation test — sample PDB vs. our procedural emission</h1>
+    <div class="pill" id="rep-pill">
+      <button data-rep="molecular">Molecular</button>
+      <button data-rep="cartoon">Cartoon</button>
+      <button data-rep="both" class="active">Both</button>
+    </div>
+    <div class="pill" id="strand-pill" style="margin-left: 8px;">
+      <button data-strand="coding" class="active" style="border-left: 3px solid #3b82f6;">Coding (+)</button>
+      <button data-strand="template" class="active" style="border-left: 3px solid #ef4444;">Template (-)</button>
+    </div>
+    <div class="pill" id="bond-pill" style="margin-left: 8px;">
+      <button data-bonds="explicit" class="active">Explicit bonds</button>
+      <button data-bonds="auto">No bonds (auto)</button>
+      <button data-bonds="pdb">Via PDB parser</button>
+    </div>
+    <span style="color:#888; font-size:12px;">applies to both panels</span>
+  </div>
+  <div class="panels">
+    <div class="panel">
+      <h2>Reference: sample_dna.pdb (real B-DNA, 12-bp duplex)</h2>
+      <div class="canvas-host" id="canvas-ref"></div>
+    </div>
+    <div class="panel">
+      <h2>Our procedural emission (matched residues)</h2>
+      <div class="canvas-host" id="canvas-ours"></div>
+    </div>
+  </div>
+
+  <script>
+    const REF_HOST = document.getElementById("canvas-ref");
+    const OURS_HOST = document.getElementById("canvas-ours");
+
+    // -- Style builders -------------------------------------------------
+    const ATOMIC_SPHERE_RADIUS = 0.18;
+    const ATOMIC_STICK_RADIUS  = 0.22;
+    const CPK = (carbonHex) => ({
+      prop: "elem",
+      map: { C: carbonHex, N: "#1e3a8a", O: "#dc2626", P: "#f97316", H: "#cccccc" },
+    });
+    function makeStyle(rep, ribbonColor, carbonHex = "#e8eaef") {
+      const s = {};
+      if (rep === "molecular" || rep === "both") {
+        s.stick  = { radius: ATOMIC_STICK_RADIUS, ...CPK(carbonHex) };
+        s.sphere = { radius: ATOMIC_SPHERE_RADIUS, ...CPK(carbonHex) };
+      }
+      if (rep === "cartoon" || rep === "both") {
+        s.cartoon = { color: ribbonColor, style: "rectangle", thickness: 0.4 };
+      }
+      return s;
+    }
+
+    // -- Reference panel: load sample PDB -------------------------------
+    let refViewer = null;
+    fetch("/sample_dna.pdb").then(r => r.text()).then(text => {
+      refViewer = $3Dmol.createViewer(REF_HOST, { backgroundColor: "#0b1020" });
+      refViewer.addModel(text, "pdb");
+      applyRefStyle(currentRep);
+      refViewer.zoomTo();
+      refViewer.render();
+    });
+    function applyRefStyle(rep) {
+      if (!refViewer) return;
+      // The sample PDB stores both strands on the same blank chain
+      // ID, with strand 1 at resi 1-12 and strand 2 at resi 13-24.
+      // Use that resi split to apply per-strand visibility.  Coding
+      // = strand 1 (resi 1-12 = "first" strand to roughly match
+      // our emission's coding direction); Template = strand 2
+      // (resi 13-24).
+      refViewer.setStyle({}, {});
+      if (showCoding) {
+        refViewer.setStyle({ resi: "1-12" }, makeStyle(rep, "#3b82f6"));
+      }
+      if (showTemplate) {
+        refViewer.setStyle({ resi: "13-24" }, makeStyle(rep, "#ef4444"));
+      }
+      refViewer.render();
+    }
+
+    // -- Ours panel: build the duplex once, restyle per representation --
+    let oursViewer = null;
+    let cachedTemplates = null;
+    fetch("/atomic_test_data.json").then(r => r.json()).then(data => {
+      cachedTemplates = data;
+      oursViewer = $3Dmol.createViewer(OURS_HOST, { backgroundColor: "#0b1020" });
+      rebuildOurs();
+    });
+    function rebuildOurs() {
+      if (!oursViewer || !cachedTemplates) return;
+      oursViewer.removeAllModels();
+      if (currentBonds === "pdb") {
+        // Generate a PDB-format string from our atoms and load via
+        // addModel — the same parser path the reference uses.
+        const atoms = buildOurDuplex(cachedTemplates, /*explicitBonds*/false);
+        const pdbText = atomsToPdb(atoms);
+        oursViewer.addModel(pdbText, "pdb");
+      } else {
+        const explicit = currentBonds === "explicit";
+        const atoms = buildOurDuplex(cachedTemplates, explicit);
+        const m = oursViewer.addModel();
+        m.addAtoms(atoms);
+      }
+      applyOursStyle(currentRep);
+      oursViewer.zoomTo();
+      oursViewer.render();
+    }
+    function atomsToPdb(atoms) {
+      const lines = [];
+      for (const a of atoms) {
+        const name = a.atom.length < 4 ? ` ${a.atom}` : a.atom;
+        lines.push(
+          "ATOM  " +
+          String(a.serial).padStart(5) + " " +
+          name.padEnd(4) + " " +
+          a.resn.padEnd(3) + " " +
+          a.chain.charAt(0) +  // single-char chain id (PDB limit)
+          String(a.resi).padStart(4) + "    " +
+          a.x.toFixed(3).padStart(8) +
+          a.y.toFixed(3).padStart(8) +
+          a.z.toFixed(3).padStart(8) +
+          "  1.00  0.00          " +
+          a.elem.padStart(2)
+        );
+      }
+      lines.push("END");
+      return lines.join("\n");
+    }
+    function applyOursStyle(rep) {
+      if (!oursViewer) return;
+      // Chain selectors differ by bond mode: addAtoms preserves
+      // "A_at"/"B_at" (multi-char), but the PDB ATOM record format
+      // only allows a SINGLE chain character so addModel(pdbText)
+      // truncates to "A"/"B".  Pick the right selector so setStyle
+      // actually finds the atoms.
+      const codingSel   = currentBonds === "pdb" ? "A" : "A_at";
+      const templateSel = currentBonds === "pdb" ? "B" : "B_at";
+      oursViewer.setStyle({ chain: codingSel },   showCoding   ? makeStyle(rep, "#3b82f6") : {});
+      oursViewer.setStyle({ chain: templateSel }, showTemplate ? makeStyle(rep, "#ef4444") : {});
+      oursViewer.render();
+    }
+
+    // -- Representation pill ---------------------------------------------
+    let currentRep = "both";
+    document.getElementById("rep-pill").addEventListener("click", e => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const rep = btn.dataset.rep;
+      currentRep = rep;
+      // Update pill state
+      document.querySelectorAll("#rep-pill button").forEach(b => b.classList.toggle("active", b === btn));
+      // Apply to both viewers
+      applyRefStyle(rep);
+      applyOursStyle(rep);
+    });
+
+    // -- Strand visibility pill (toggle each independently) ---------------
+    // Both buttons are toggle-style — clicking flips its own active state
+    // without affecting the other.  Active = visible, inactive = hidden.
+    let showCoding   = true;
+    let showTemplate = true;
+    document.getElementById("strand-pill").addEventListener("click", e => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      btn.classList.toggle("active");
+      const isActive = btn.classList.contains("active");
+      if (btn.dataset.strand === "coding")   showCoding   = isActive;
+      if (btn.dataset.strand === "template") showTemplate = isActive;
+      // Re-apply styles so visibility takes effect.
+      applyRefStyle(currentRep);
+      applyOursStyle(currentRep);
+    });
+
+    // -- Bond mode pill (radio: explicit / auto / pdb-parser) --------------
+    let currentBonds = "explicit";
+    document.getElementById("bond-pill").addEventListener("click", e => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      currentBonds = btn.dataset.bonds;
+      document.querySelectorAll("#bond-pill button").forEach(b => b.classList.toggle("active", b === btn));
+      // Bond mode change requires rebuilding the model (atoms have
+      // different bonds + the PDB-parser path uses addModel instead
+      // of addAtoms).
+      rebuildOurs();
+    });
+
+    // -- Procedural duplex builder --------------------------------------
+    function buildOurDuplex(TEMPLATES, explicitBonds = true) {
+      const RISE = 3.4;
+      const TWIST = 36 * Math.PI / 180;
+      const R = 10.0;
+      const TEMPLATE_OFFSET = +76 * Math.PI / 180;
+      const N = 12;
+      const codingSeq = "TTGACAGCTAGC";
+      const templateSeq = "GCTAGCTGTCAA";
+
+      const atoms = [];
+      let serial = 1;
+
+      function emit(template, c1, tangent, outward, chain, resi, resn, prevO3) {
+        const ey = norm(outward);
+        const ez = tangent;
+        const ex = cross(ez, ey);
+        const nameToSerial = {};
+        const out = [];
+        for (const a of template) {
+          const sx = c1[0] + a.x*ex[0] + a.y*ey[0] + a.z*ez[0];
+          const sy = c1[1] + a.x*ex[1] + a.y*ey[1] + a.z*ez[1];
+          const sz = c1[2] + a.x*ex[2] + a.y*ey[2] + a.z*ez[2];
+          const s = serial++;
+          nameToSerial[a.name] = s;
+          out.push({
+            elem: a.elem, x: sx, y: sy, z: sz, resn, resi, chain, serial: s,
+            atom: a.name, bonds: [], bondOrder: [], hetflag: false, properties: {}
+          });
+        }
+        // Intra-residue bonds — only emit when explicitBonds is true.
+        // When false, leave atoms with empty `bonds` arrays so 3Dmol
+        // falls back to its auto-detect (distance-based + residue
+        // template).
+        if (explicitBonds) {
+          const bondTable = TEMPLATES.BONDS[resnKey(resn)];
+          for (const [na, nb] of bondTable) {
+            const sa = nameToSerial[na], sb = nameToSerial[nb];
+            if (!sa || !sb) continue;
+            const lo = Math.min(sa, sb);
+            const hi = Math.max(sa, sb);
+            const loAtom = out.find(a => a.serial === lo);
+            if (loAtom) {
+              loAtom.bonds.push(hi);
+              loAtom.bondOrder.push(1);
+            }
+          }
+        }
+        // Inter-residue bond
+        const pSerial = nameToSerial.P;
+        if (explicitBonds && prevO3 != null && pSerial) {
+          const pAtom = out.find(a => a.serial === pSerial);
+          pAtom.bonds.push(prevO3); pAtom.bondOrder.push(1);
+        }
+        atoms.push(...out);
+        return nameToSerial["O3'"];
+      }
+
+      function resnKey(r) {
+        if (r === "DA" || r === "DT" || r === "DG" || r === "DC") return r;
+        return "DA";
+      }
+
+      // Coding strand
+      let prevO3 = null;
+      for (let i = 0; i < N; i++) {
+        const base = codingSeq[i];
+        const resn = "D" + base;
+        const phase = i * TWIST;
+        const c1 = [R*Math.cos(phase), R*Math.sin(phase), i*RISE];
+        const outward = norm([c1[0], c1[1], 0]);
+        prevO3 = emit(TEMPLATES[resn], c1, [0, 0, 1], outward, "A_at", i+1, resn, prevO3);
+      }
+      // Template strand iterated in reverse (template's 5'→3' direction)
+      let prevO3T = null;
+      let chainResi = 0;
+      for (let render_i = N-1; render_i >= 0; render_i--) {
+        chainResi++;
+        const base = templateSeq[N - 1 - render_i];
+        const resn = "D" + base;
+        const phase = render_i * TWIST + TEMPLATE_OFFSET;
+        const c1 = [R*Math.cos(phase), R*Math.sin(phase), render_i*RISE];
+        const outward = norm([c1[0], c1[1], 0]);
+        prevO3T = emit(TEMPLATES[resn], c1, [0, 0, -1], outward, "B_at", chainResi, resn, prevO3T);
+      }
+      return atoms;
+    }
+
+    function norm(v) {
+      const n = Math.hypot(v[0], v[1], v[2]);
+      return n > 0 ? [v[0]/n, v[1]/n, v[2]/n] : [0, 1, 0];
+    }
+    function cross(a, b) {
+      return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+    }
+  </script>
+</body>
+</html>
