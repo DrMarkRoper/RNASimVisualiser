@@ -1010,13 +1010,19 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
     out[k] = { pos: homes[k].pos, chain: homes[k].chain, weight: 0 };
   }
 
-  // U-tract chain re-routing (chain T → chain U) — applied for runs
-  // with a terminator annotation as soon as the U-tract has been
+  // U-tract chain re-routing (chain T or R → chain U) — applied for
+  // runs with a terminator annotation as soon as the U-tract has been
   // transcribed.  Same gate the SequencePanel uses (`termVisible`)
   // for showing terminator highlights.  Re-routing happens whether or
   // not the hairpin is folding, so the U-tract is pink throughout the
   // post-σ-release portion of the run, matching the panel's pink
   // `term-utract` highlight.
+  //
+  // Both T and R get caught: bases inside the hybrid arrive on chain T
+  // via the home-positions logic; bases that have left the hybrid
+  // (during the early-detach 5-frame bubble collapse) arrive on chain
+  // R.  Without re-routing the R variant the U-tract would gradually
+  // turn green as the bubble shrinks, contradicting the panel.
   const term = ctx.manifest.terminator;
   if (term && term.u_tract_end > term.u_tract_start && n >= term.stem3_start) {
     const uLo = term.u_tract_start;
@@ -1025,7 +1031,7 @@ function computeRnaBasePositions(ctx: RnaContext): RnaBasePos[] {
       // Don't override the hairpin chain — bases in the stem range
       // get chain H below.  U-tract is by definition 3′ of stem3, so
       // there's no overlap with the stem range, but check defensively.
-      if (out[k] && out[k].chain === "T") {
+      if (out[k] && (out[k].chain === "T" || out[k].chain === "R")) {
         out[k].chain = "U";
       }
     }
