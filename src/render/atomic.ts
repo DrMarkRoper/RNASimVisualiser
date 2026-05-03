@@ -697,6 +697,13 @@ export function emitAtomicPdbText(
     rnaResiRanges = result.resiRanges;
   }
 
+  // Guard: if no ATOM records were emitted (e.g. rna pick is "atomic"
+  // but the RNA hasn't been produced yet in this frame), return an
+  // empty pdbText so the caller skips addModel entirely.  Passing a
+  // zero-atom PDB ("END" only) to 3Dmol's addModel can crash the viewer.
+  if (lines.length === 0) {
+    return { pdbText: "", rnaResiRanges };
+  }
   lines.push("END");
   return { pdbText: lines.join("\n"), rnaResiRanges };
 }
@@ -818,7 +825,7 @@ function emitStrandPdb(
  */
 export interface RnaResiRange {
   /** Original schematic chain identifier — drives section colour. */
-  chainId: "T" | "R" | "H" | "U";
+  chainId: "T" | "R" | "H" | "U" | "X";
   /** First residue number in this section (1-based, inclusive). */
   startResi: number;
   /** Last residue number in this section (1-based, inclusive). */
@@ -849,17 +856,17 @@ function emitRnaPdb(
   startSerial: number,
   outLines: string[],
 ): { nextSerial: number; resiRanges: RnaResiRange[] } {
-  const VALID_CHAINS = new Set(["T", "R", "H", "U"]);
+  const VALID_CHAINS = new Set(["T", "R", "H", "U", "X"]);
   let serial = startSerial;
   const resiRanges: RnaResiRange[] = [];
-  let currentChainId: "T" | "R" | "H" | "U" | null = null;
+  let currentChainId: "T" | "R" | "H" | "U" | "X" | null = null;
   let currentRangeStart = 1;
 
   for (let k = 0; k < rnaPositions.length; k++) {
     const entry = rnaPositions[k];
     const originalChain = entry.chain;
     if (!VALID_CHAINS.has(originalChain)) continue;
-    const sectionChain = originalChain as "T" | "R" | "H" | "U";
+    const sectionChain = originalChain as "T" | "R" | "H" | "U" | "X";
 
     // Global sequential resi — makes 3Dmol trace a continuous ribbon
     // across all sections on the single chain "R".

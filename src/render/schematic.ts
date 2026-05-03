@@ -936,7 +936,7 @@ function baseHairpinWeight(
 // as the strand reshapes.
 // -------------------------------------------------------------------------
 
-type RnaChain = "T" | "R" | "H" | "U";
+type RnaChain = "T" | "R" | "H" | "U" | "X";
 
 interface RnaBasePos {
   pos: [number, number, number];
@@ -1956,7 +1956,7 @@ export interface BaseAxisPointPub {
 
 export interface RnaBasePosPub {
   pos: [number, number, number];
-  chain: "T" | "R" | "H" | "U";
+  chain: "T" | "R" | "H" | "U" | "X";
   weight: number;
   tangent: [number, number, number];
 }
@@ -2061,6 +2061,36 @@ export function computeStrandFrame(
       rnaAnchorBound,
     });
     computeRnaTangents(rnaPositions);
+
+    // Remap backtracked RNA bases (the last backtrack_steps of the nascent
+    // RNA) to chain X with secondary-channel coordinates.  The schematic
+    // renderer emits separate chain-X spheres for these; the atomic renderer
+    // uses rnaPositions, so we replace those terminal entries in-place so
+    // that base identity (array index k → rna_sequence[k]) is preserved in
+    // the atomic PDB emission while the positions are the secondary-channel
+    // geometry rather than the active-site geometry.
+    if (snapshot.backtrack_steps > 0) {
+      // Secondary-channel step vector (matching SchematicBuilder.build()).
+      const STEP_X = 3, STEP_Y = 0, STEP_Z = -0.5;
+      const stepMag = Math.hypot(STEP_X, STEP_Y, STEP_Z);
+      const tangent: [number, number, number] = [
+        STEP_X / stepMag, STEP_Y / stepMag, STEP_Z / stepMag,
+      ];
+      const btStart = Math.max(0, rnaPositions.length - snapshot.backtrack_steps);
+      for (let k = btStart; k < rnaPositions.length; k++) {
+        const j = k - btStart;
+        rnaPositions[k] = {
+          pos: [
+            rnapCenter[0] + 5 + j * STEP_X,
+            rnapCenter[1] - 15 + j * STEP_Y,
+            rnapCenter[2]      + j * STEP_Z,
+          ],
+          chain: "X",
+          weight: 0,
+          tangent,
+        };
+      }
+    }
   }
 
   return {

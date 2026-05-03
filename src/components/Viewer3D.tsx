@@ -655,7 +655,10 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
       },
       {
         atomicPick: options.rna === "atomic",
-        bandChains: ["R", "T", "H", "U"],
+        // Include chain X (backtracked RNA) so its schematic spheres are
+        // hidden when RNA is switched to atomic mode — the atomic emission
+        // path remaps those bases onto chain X in the unified PDB "R" chain.
+        bandChains: ["R", "T", "H", "U", "X"],
         // All RNA sections are now on a single unified PDB chain "R" so the
         // cartoon renderer draws one continuous ribbon.  Per-section colours
         // are applied via per-resi-range setStyle calls in the block below
@@ -748,6 +751,7 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
         R: "#10b981",  // green  — exit thread
         H: "#7c3aed",  // violet — terminator hairpin
         U: "#f472b6",  // pink   — U-tract
+        X: "#a78bfa",  // violet — backtracked RNA (secondary channel)
       };
       for (const range of rnaResiRanges) {
         const sectionColor = RNA_SECTION_COLORS[range.chainId];
