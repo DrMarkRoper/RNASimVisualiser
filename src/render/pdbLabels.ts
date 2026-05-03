@@ -13,10 +13,16 @@
  * revision.
  */
 
-/** Narrow shape of the 3Dmol `AtomSpec` that the hover callback sees. */
+/** Narrow shape of the 3Dmol `AtomSpec` that the hover callback sees.
+ *  3Dmol exposes a richer AtomSpec; we declare only the fields the
+ *  hover-label resolvers consult. */
 export interface PdbHoverAtom {
   chain?: string;
   resi?: number;
+  /** Residue name (DA/DT/DG/DC for DNA, A/U/G/C for RNA, TRP for W433…). */
+  resn?: string;
+  /** Atom name in the residue (P, OP1, C5', C1', N9, N1, …). */
+  atom?: string;
 }
 
 /**
@@ -49,8 +55,8 @@ export interface PdbHoverAtom {
  * `getPdbHoverLabel` for the dynamic model — chain "A" means α-subunit in
  * 6ALF but coding-strand DNA in the schematic.
  */
-export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
-  const { chain, resi } = atom;
+export function getSchematicHoverLabel(spec: PdbHoverAtom): string | null {
+  const { chain, resi, resn, atom: atomName } = spec;
   switch (chain) {
     // -- RNAP subunits (mesh mode) ------------------------------------------
     case "Y": return "RNAP α subunit I — RpoA1, assembly platform / αCTD UP-element contact";
@@ -99,9 +105,53 @@ export function getSchematicHoverLabel(atom: PdbHoverAtom): string | null {
       return "Terminator U-tract — weak rU:dA hybrid that pauses RNAP long enough for hairpin nucleation";
     case "X":
       return "Backtracked RNA (secondary channel)";
+
+    // -- Atomic-mode chains (per-residue heavy-atom geometry) ---------------
+    //
+    // Hovering on a stick or sphere shows: which strand, which base
+    // (DA/DT/DG/DC for DNA, A/U/G/C for RNA), the chain-local resi,
+    // and the specific atom name when available.  Useful for
+    // verifying base identity and pairing without leaving the viewer.
+    case "A_at": return atomicLabel("Coding (+) strand", resn, resi, atomName);
+    case "B_at": return atomicLabel("Template (-) strand", resn, resi, atomName);
+    case "R_at": return atomicLabel("Nascent RNA (exit channel)", resn, resi, atomName);
+    case "T_at": return atomicLabel("RNA hybrid / σ-trapped coil", resn, resi, atomName);
+    case "H_at": return atomicLabel("Terminator hairpin RNA", resn, resi, atomName);
+    case "U_at": return atomicLabel("Terminator U-tract RNA", resn, resi, atomName);
+
     default:
       return null;
   }
+}
+
+/**
+ * Format a hover label for an atomic-mode atom.  Pulls together the
+ * strand role, the base identity (residue name), the chain-local
+ * residue number, and the specific atom under the cursor.  Each
+ * field is optional — if 3Dmol's AtomSpec doesn't include one we
+ * just skip it gracefully so the user still sees a useful label.
+ *
+ * Resi is the chain-local index — for the coding strand it equals
+ * the sequence position (1 = 5' end), for the template strand it
+ * equals the position counted FROM TEMPLATE'S 5' END (so resi 1 sits
+ * at the high-Z end of the duplex and pairs with coding's last
+ * residue, resi N).  This matches the cartoon's monotonic resi-order
+ * trace; the band-mode chain B uses sequence-position numbering for
+ * its hover labels (kept distinct).
+ */
+function atomicLabel(
+  role: string,
+  resn?: string,
+  resi?: number,
+  atom?: string,
+): string {
+  const baseLabel = resn ? ` ${resn}` : "";
+  const resiLabel = typeof resi === "number" ? ` resi ${resi}` : "";
+  const atomLabel = atom ? ` · atom ${atom}` : "";
+  // For the phantom 3' residue we emit at chainResi=N+1 (cartoon trim
+  // sacrifice), don't show it as a real base — but we don't have N
+  // here, so the label still includes its chainResi (looks fine).
+  return `${role}${baseLabel}${resiLabel}${atomLabel}`;
 }
 
 /**

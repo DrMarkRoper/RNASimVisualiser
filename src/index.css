@@ -439,6 +439,39 @@ code, pre { font-family: var(--mono); }
   color: var(--bg);
   border-color: var(--accent);
 }
+/* Representation pill — three-state segmented control next to the
+   Labels button (Molecular / Bar/band / Both).  Visually distinct from
+   the single-button toggles by having all three options always
+   visible, with one highlighted as active. */
+.viewer3d-rep-pill {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.viewer3d-rep-btn {
+  padding: 2px 9px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--fg-muted);
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.viewer3d-rep-btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.viewer3d-rep-btn:hover {
+  color: var(--fg);
+}
+.viewer3d-rep-btn.active {
+  background: var(--accent);
+  color: var(--bg);
+}
 .viewer3d-status {
   position: absolute;
   top: 8px;

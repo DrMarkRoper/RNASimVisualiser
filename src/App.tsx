@@ -408,6 +408,7 @@ export default function App() {
               snapshot={snapshot}
               mode={mode}
               options={renderOptions}
+              onOptionsChange={setRenderOptions}
               theme={theme}
             />
           </div>

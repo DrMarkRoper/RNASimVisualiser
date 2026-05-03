@@ -398,7 +398,7 @@ export function SequencePanel({ manifest, snapshot }: SequencePanelProps) {
               // RNAP — not released.  Mark these distinctly.  Threshold
               // matches the schematic builder's `sigmaPresent` so the
               // 3D and the panel transition together.
-              const sigmaBlocking = sigmaPresence > 0.05;
+              const sigmaBlocking = sigmaPresence >= 0.9;
               const trapped = !hybrid && sigmaBlocking;
               // Terminator overlay on the RNA track — only draw once the
               // feature has actually been transcribed (`termVisible`).

@@ -4,11 +4,50 @@
  * In atomic mode, chain P (RNAP placeholder) and chain S (procedural σ⁷⁰)
  * are NOT present in the geometry — the PDB model supplies them instead,
  * so those entries are intentionally absent here.
+ *
+ * Atomic-mode strand chains (suffix `_at`):
+ *   A_at — coding-strand DNA atoms (per-residue templates)
+ *   B_at — template-strand DNA atoms
+ *   T_at — RNA hybrid + σ-bound coil atoms
+ *   R_at — RNA exit-channel tail atoms
+ *   H_at — terminator-hairpin atoms
+ *   U_at — U-tract atoms
+ *
+ * These are styled with small (0.30 Å radius) spheres + a CPK-ish
+ * per-element colour ramp so the per-atom detail reads as a
+ * recognisable nucleic-acid backbone + base.  They co-exist with the
+ * band chains (A, B, R, T, H, U) in the model; the legend bar's
+ * representation pill (Molecular / Bar / Both) controls which are
+ * visible by toggling between full styles and `PDB_HIDDEN_STYLE`
+ * (= empty StyleSpec, "draw nothing").
  */
 import type { RenderMode } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type StyleSpec = Record<string, any>;
+
+/** Atomic-mode sphere radius (Å) — small dot at each atom centre, the
+ *  detail is carried by the stick bonds rather than the spheres. */
+export const ATOMIC_SPHERE_RADIUS = 0.18;
+/** Atomic-mode bond stick radius (Å) — chunky enough to read as a
+ *  licorice / cylinder representation rather than thin lines.  This
+ *  is what gives the rendering its visual mass; matches the look of
+ *  PyMOL / VMD's standard "stick" representation. */
+export const ATOMIC_STICK_RADIUS = 0.22;
+
+/** Per-element CPK-ish colour map.  Carbon is overridden per chain so
+ *  the strand identity (coding vs template vs RNA) stays visually
+ *  recognisable; nitrogens / oxygens / phosphorus stand out. */
+const ATOM_COLORSCHEME = (carbonHex: string) => ({
+  prop: "elem" as const,
+  map: {
+    C: carbonHex,
+    N: "#1e3a8a",  // dark blue — base nitrogens
+    O: "#dc2626",  // red — sugar O3'/O4'/O5' + base oxygens
+    P: "#f97316",  // orange — phosphate
+    H: "#cccccc",  // (unused — templates are heavy-atom only)
+  },
+});
 
 export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
   schematic: {
@@ -91,6 +130,58 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
                 } } },
       line: { color: "#ec4899", linewidth: 2 },
     },
+
+    // Atomic-mode strand chains (rendered in schematic OVERALL mode
+    // when an individual strand has its per-component pick set to
+    // `atomic` and `representation !== "band"`).
+    //
+    // Three layered styles per chain:
+    //   • cartoon  — a phosphate-backbone ribbon traced through the
+    //                P atoms.  This is the orange / purple band
+    //                running along each strand.
+    //   • stick    — chunky cylinders for every covalent bond
+    //                (intra-residue + inter-residue).  Carbons
+    //                white-grey so the bases / sugars read as
+    //                neutral ball-and-stick alongside the coloured
+    //                ribbon.
+    //   • sphere   — small dot at every heavy-atom centre, sized so
+    //                bond junctions read crisply without
+    //                overpowering the sticks.
+    //
+    // Carbon colour for sticks is set to a neutral light grey
+    // (`#e8eaef`) so the BASE atoms read as standard ball-and-stick;
+    // chain identity is carried by the cartoon ribbon's per-chain
+    // colour.  Heteroatoms (N/O/P) keep the CPK ramp.
+    A_at: {
+      cartoon: { color: "#3b82f6", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    B_at: {
+      cartoon: { color: "#ef4444", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    R_at: {
+      cartoon: { color: "#10b981", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    T_at: {
+      cartoon: { color: "#f59e0b", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    H_at: {
+      cartoon: { color: "#7c3aed", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    U_at: {
+      cartoon: { color: "#f472b6", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
   },
   atomic: {
     // Coding strand — small spheres + line backbone trace.
@@ -131,6 +222,39 @@ export const STYLES_BY_MODE: Record<RenderMode, Record<string, StyleSpec>> = {
       sphere: { color: "#f59e0b", radius: 0.8 },
     },
     // P and S are absent in atomic geometry — PDB supplies them.
+
+    // Atomic-mode strand chains — three-layer cartoon + stick +
+    // sphere style.  See schematic-mode block above for rationale.
+    A_at: {
+      cartoon: { color: "#3b82f6", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    B_at: {
+      cartoon: { color: "#ef4444", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    R_at: {
+      cartoon: { color: "#10b981", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    T_at: {
+      cartoon: { color: "#f59e0b", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    H_at: {
+      cartoon: { color: "#7c3aed", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
+    U_at: {
+      cartoon: { color: "#f472b6", style: "rectangle", thickness: 0.4 },
+      stick:   { radius: ATOMIC_STICK_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+      sphere:  { radius: ATOMIC_SPHERE_RADIUS, ...ATOM_COLORSCHEME("#e8eaef") },
+    },
   },
 };
 
