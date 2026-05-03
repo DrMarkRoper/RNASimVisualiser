@@ -13,7 +13,7 @@ import type {
   RenderMode,
 } from "../render/types";
 import { createSchematicBuilder } from "../render/schematic";
-import { createAtomicBuilder, emitAtomicPdbText } from "../render/atomic";
+import { createAtomicBuilder, emitAtomicPdbText, type RnaResiRange } from "../render/atomic";
 import {
   STYLES_BY_MODE,
   PDB_PROTEIN_STYLE,
@@ -486,7 +486,7 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
     // pentagonal sugar rings + hexagonal base rings).  Skipped when
     // no strand pick is "atomic"; per-strand styling further down
     // reads the same picks to decide which chains to style.
-    const atomicPdbText = emitAtomicPdbText(manifest, snapshot, options);
+    const { pdbText: atomicPdbText, rnaResiRanges } = emitAtomicPdbText(manifest, snapshot, options);
     if (atomicPdbText) {
       atomicModelRef.current = viewer.addModel(atomicPdbText, "pdb");
     }
@@ -656,8 +656,12 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
       {
         atomicPick: options.rna === "atomic",
         bandChains: ["R", "T", "H", "U"],
-        atomicChains: ["R", "T", "H", "U"],
-        atomicColors: ["#10b981", "#f59e0b", "#7c3aed", "#f472b6"],
+        // All RNA sections are now on a single unified PDB chain "R" so the
+        // cartoon renderer draws one continuous ribbon.  Per-section colours
+        // are applied via per-resi-range setStyle calls in the block below
+        // (after the strandConfigs loop) rather than per-chain here.
+        atomicChains: [],
+        atomicColors: [],
       },
     ];
 
@@ -724,6 +728,38 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
       // model chains defensively because we drop+rebuild
       // atomicModelRef every frame, and we only emit atoms for
       // strands whose pick is "atomic".
+    }
+
+    // ---------------------------------------------------------------
+    // Per-section RNA colouring for the unified atomic chain "R".
+    //
+    // All RNA residues (hybrid T, exit R, hairpin H, U-tract U) are
+    // emitted onto single PDB chain "R" with globally-sequential resi
+    // numbers so 3Dmol draws ONE continuous cartoon ribbon.  We then
+    // override the colour per schematic section using the resi ranges
+    // that emitAtomicPdbText returned.
+    //
+    // This block runs AFTER the strandConfigs loop so the atomic model
+    // already exists (if applicable).  The per-range calls simply
+    // override the zero-colour state of the freshly-loaded model.
+    if (options.rna === "atomic" && atomicModelRef.current && rnaResiRanges.length > 0) {
+      const RNA_SECTION_COLORS: Record<RnaResiRange["chainId"], string> = {
+        T: "#f59e0b",  // amber  — hybrid / σ-trapped
+        R: "#10b981",  // green  — exit thread
+        H: "#7c3aed",  // violet — terminator hairpin
+        U: "#f472b6",  // pink   — U-tract
+      };
+      for (const range of rnaResiRanges) {
+        const sectionColor = RNA_SECTION_COLORS[range.chainId];
+        // Build an explicit resi array so the selector works regardless
+        // of 3Dmol's internal range-string support.
+        const resiArr: number[] = [];
+        for (let r = range.startResi; r <= range.endResi; r++) resiArr.push(r);
+        viewer.setStyle(
+          { model: atomicModelRef.current, chain: "R", resi: resiArr },
+          atomicStyleFor(sectionColor),
+        );
+      }
     }
 
     // Apply legend-item visibility toggles — override the styles set above

@@ -644,17 +644,21 @@ export function augmentSchematicWithAtomic(
  * chain from its trace — drops the phantom instead of a real
  * residue.  Same trick we used for the addAtoms path.
  *
- * Returns the empty string when no strand pick is `"atomic"`; the
- * caller skips the addModel call in that case.
+ * Returns `{ pdbText: "", rnaResiRanges: [] }` when no strand pick is
+ * `"atomic"`; the caller skips the addModel call when pdbText is empty.
+ *
+ * `rnaResiRanges` lists one entry per contiguous run of each schematic
+ * RNA section (T/R/H/U) so Viewer3D can apply per-section colours via
+ * `setStyle({chain:"R", resi:[...]}, ...)` after loading the model.
  */
 export function emitAtomicPdbText(
   manifest: SimulationManifest,
   snapshot: Snapshot,
   options: RenderOptions,
-): string {
+): { pdbText: string; rnaResiRanges: RnaResiRange[] } {
   const flags = atomicStrandFlags(options);
   if (!flags.coding && !flags.template && !flags.rna) {
-    return "";
+    return { pdbText: "", rnaResiRanges: [] };
   }
   const sf = computeStrandFrame(manifest, snapshot, options);
   const lines: string[] = [];
@@ -685,12 +689,16 @@ export function emitAtomicPdbText(
       serial, lines,
     );
   }
+
+  let rnaResiRanges: RnaResiRange[] = [];
   if (flags.rna && sf.rnaPositions.length > 0) {
-    serial = emitRnaPdb(sf.rnaPositions, snapshot.rna_sequence, serial, lines);
+    const result = emitRnaPdb(sf.rnaPositions, snapshot.rna_sequence, serial, lines);
+    serial = result.nextSerial;
+    rnaResiRanges = result.resiRanges;
   }
 
   lines.push("END");
-  return lines.join("\n");
+  return { pdbText: lines.join("\n"), rnaResiRanges };
 }
 
 /**
@@ -802,31 +810,74 @@ function emitStrandPdb(
 }
 
 /**
- * RNA per-base PDB emission.  Each entry's chain assignment (T/R/H/U)
- * becomes a single-char PDB chain ID.  chainResi is per-chain (each
- * RNA chain numbers its residues from 1) so 3Dmol's cartoon trace
- * walks each chain independently.
+ * Describes one contiguous section of the nascent RNA as emitted into
+ * the unified PDB chain.  The `chainId` is the original schematic chain
+ * identifier (T = hybrid/trapped, R = exit thread, H = hairpin, U =
+ * U-tract) and is used by Viewer3D to apply the matching section colour
+ * via a per-resi-range `setStyle` call.
+ */
+export interface RnaResiRange {
+  /** Original schematic chain identifier — drives section colour. */
+  chainId: "T" | "R" | "H" | "U";
+  /** First residue number in this section (1-based, inclusive). */
+  startResi: number;
+  /** Last residue number in this section (1-based, inclusive). */
+  endResi: number;
+}
+
+/**
+ * RNA per-base PDB emission.  ALL RNA residues — regardless of their
+ * schematic chain (T/R/H/U) — are now emitted onto the SINGLE PDB
+ * chain "R" with globally-sequential residue numbers (k + 1 for base
+ * index k).  This gives 3Dmol a single unbroken chain to trace as a
+ * cartoon ribbon, joining the hybrid, exit-thread, hairpin, and
+ * U-tract sections into one continuous strand.
  *
- * No phantom emission for RNA chains — each chain's residue count
- * varies per frame and a phantom would visually clutter the exit
- * thread / hairpin.  The cartoon trim of the last RNA residue per
- * chain is acceptable since RNA cartoon visibility is dominated by
- * the stick representation anyway.
+ * Per-section colours are applied in Viewer3D via `setStyle` scoped to
+ * the resi ranges returned here — one range per run of the same
+ * schematic chain type.
+ *
+ * No phantom emission for the RNA chain — residue counts vary
+ * per-frame and a phantom would visually clutter the exit thread /
+ * hairpin.  The cartoon trim of the very last residue is acceptable
+ * since RNA cartoon visibility is primarily carried by the continuous
+ * ribbon through the other residues.
  */
 function emitRnaPdb(
   rnaPositions: RnaBasePosPub[],
   rnaSeq: string,
   startSerial: number,
   outLines: string[],
-): number {
+): { nextSerial: number; resiRanges: RnaResiRange[] } {
+  const VALID_CHAINS = new Set(["T", "R", "H", "U"]);
   let serial = startSerial;
-  const chainResiCounters: Record<string, number> = { T: 0, R: 0, H: 0, U: 0 };
+  const resiRanges: RnaResiRange[] = [];
+  let currentChainId: "T" | "R" | "H" | "U" | null = null;
+  let currentRangeStart = 1;
+
   for (let k = 0; k < rnaPositions.length; k++) {
     const entry = rnaPositions[k];
-    const chain = entry.chain; // "T" | "R" | "H" | "U"
-    if (chainResiCounters[chain] === undefined) continue;
-    chainResiCounters[chain]++;
-    const chainResi = chainResiCounters[chain];
+    const originalChain = entry.chain;
+    if (!VALID_CHAINS.has(originalChain)) continue;
+    const sectionChain = originalChain as "T" | "R" | "H" | "U";
+
+    // Global sequential resi — makes 3Dmol trace a continuous ribbon
+    // across all sections on the single chain "R".
+    const globalResi = k + 1;
+
+    // Track transitions between schematic sections for the resi range table.
+    if (sectionChain !== currentChainId) {
+      if (currentChainId !== null) {
+        resiRanges.push({
+          chainId: currentChainId,
+          startResi: currentRangeStart,
+          endResi: globalResi - 1,
+        });
+      }
+      currentChainId = sectionChain;
+      currentRangeStart = globalResi;
+    }
+
     const base = rnaSeq[k] ?? "A";
     const t = entry.tangent;
     const upY: [number, number, number] = [0, 1, 0];
@@ -842,12 +893,23 @@ function emitRnaPdb(
       c1Pos: entry.pos, tangent: t, outward, twist: 0,
     });
     const resn = base.toUpperCase();
+    // All RNA residues go onto the single unified PDB chain "R".
     for (const a of emitted) {
-      outLines.push(formatPdbAtom(serial, a.name, resn, chain, chainResi, a.pos[0], a.pos[1], a.pos[2], a.elem));
+      outLines.push(formatPdbAtom(serial, a.name, resn, "R", globalResi, a.pos[0], a.pos[1], a.pos[2], a.elem));
       serial++;
     }
   }
-  return serial;
+
+  // Close the final range.
+  if (currentChainId !== null) {
+    resiRanges.push({
+      chainId: currentChainId,
+      startResi: currentRangeStart,
+      endResi: rnaPositions.length,
+    });
+  }
+
+  return { nextSerial: serial, resiRanges };
 }
 
 /**
