@@ -263,7 +263,7 @@ function emitStrand(
       c1 = strandScenePosition(pt, strandSign, bubbleLoIdx, bubbleHiIdx);
     } else {
       // Template, outside bubble: override.
-      const phase = pt.twist + TEMPLATE_PAIRING_OFFSET_RAD;
+      const phase = pt.twist - SCHEMATIC_TWIST_PER_BP + TEMPLATE_PAIRING_OFFSET_RAD;
       const R = SCHEMATIC_HELIX_RADIUS;
       c1 = [
         pt.axis[0] + R * Math.cos(phase),
@@ -729,7 +729,7 @@ function emitStrandPdb(
     if (strandSign === 1 || inBubble) {
       c1 = strandScenePosition(pt, strandSign, bubbleLoIdx, bubbleHiIdx);
     } else {
-      const phase = pt.twist + TEMPLATE_PAIRING_OFFSET_RAD;
+      const phase = pt.twist - SCHEMATIC_TWIST_PER_BP + TEMPLATE_PAIRING_OFFSET_RAD;
       const R = SCHEMATIC_HELIX_RADIUS;
       c1 = [
         pt.axis[0] + R * Math.cos(phase),

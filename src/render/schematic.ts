@@ -359,7 +359,7 @@ function strandPosition(
   bubbleHiIdx: number,
 ): [number, number, number] {
   const [ax, ay, az] = pt.axis;
-  const phase = strandSign === 1 ? pt.twist : pt.twist + Math.PI;
+  const phase = strandSign === 1 ? pt.twist : pt.twist - TWIST_PER_BP + Math.PI;
 
   if (!pt.melted) {
     // Paired duplex — standard B-helix wrap in (X, Y) around the axis.

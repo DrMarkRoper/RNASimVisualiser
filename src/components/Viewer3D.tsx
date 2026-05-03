@@ -700,6 +700,23 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
               atomicStyleFor(sc.atomicColors[i]),
             );
           }
+          // Hide the phantom 3' residue that was appended to each DNA
+          // strand so 3Dmol's cartoon doesn't trim the last real base
+          // (see emitStrandPdb in render/atomic.ts).  The phantom sits
+          // at chainResi = seq.length + 1 on chains A and B.  Overriding
+          // with PDB_HIDDEN_STYLE here removes it from all representations
+          // (molecular / cartoon / both) while the PDB structure still
+          // carries the residue for the cartoon trace.
+          const isDnaStrand = sc.atomicChains.some(c => c === "A" || c === "B");
+          if (isDnaStrand) {
+            const phantomResi = manifest.sequence.coding_strand.length + 1;
+            for (const chain of sc.atomicChains) {
+              viewer.setStyle(
+                { model: atomicModelRef.current, chain, resi: phantomResi },
+                PDB_HIDDEN_STYLE,
+              );
+            }
+          }
         }
       }
       // Schematic — keep band visible (already styled in the
