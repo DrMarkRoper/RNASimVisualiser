@@ -26,6 +26,18 @@ import type { SimulationManifest, Snapshot, Phase } from "../types/manifest";
  * playback speeds (24 fps) — tune here rather than duplicating elsewhere.
  */
 const FADE_FRAMES = 12;
+// Frames to hold σ⁷⁰ in its fully-assembled pose after promoter escape before
+// the drift-away fade begins.  Without this, presence drops from 1.0 to 0.917
+// on the very first post-escape frame — a change too small for the eye to
+// catch — while RNAP has already jumped downstream (sigmaPresent = presence >=
+// 1.0 flips simultaneously).  The hold keeps presence = 1.0 for SNAP_DELAY_FRAMES
+// more frames, so when presence finally starts dropping AND RNAP jumps they are
+// both in the same perceptibly-visible frame.
+// No artificial hold needed: the renderer's sigmaPresent threshold (>= 0.9)
+// matches the timeline's "bound" state boundary (p < 0.9 → "releasing"), so
+// the RNAP jump and the timeline's "releasing" label always fire in the same
+// frame by construction.
+const SNAP_DELAY_FRAMES = 0;
 
 const ESCAPE_EVENT = /promoter escape/i;
 // Phases in which σ⁷⁰ has already departed the holoenzyme.  "approaching"
@@ -75,10 +87,11 @@ export function computeSigma70PresenceArray(
 
   for (let i = 0; i < n; i++) {
     let p: number;
-    if (anchor === -1 || i < anchor) {
+    if (anchor === -1 || i < anchor + SNAP_DELAY_FRAMES) {
+      // Before anchor OR within the post-escape hold window: σ fully assembled.
       p = 1.0;
-    } else if (i < anchor + FADE_FRAMES) {
-      p = 1.0 - (i - anchor) / FADE_FRAMES;
+    } else if (i < anchor + SNAP_DELAY_FRAMES + FADE_FRAMES) {
+      p = 1.0 - (i - anchor - SNAP_DELAY_FRAMES) / FADE_FRAMES;
     } else {
       p = 0.0;
     }

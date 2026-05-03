@@ -1394,7 +1394,13 @@ class SchematicBuilder implements GeometryBuilder {
     const presence = getSigma70Presence(manifest, snapshot);
     // Needed early (before rnapAxisZ) to gate the scrunching vs elongation
     // RNAP-position logic below.
-    const sigmaPresent = presence > 0.05;
+    const sigmaPresent = presence >= 0.9;
+    // σ visual animations (domain drift, W433 departure) are held at their
+    // fully-assembled pose while sigmaPresent is true, so they start moving
+    // in the same frame as the RNAP jump and the timeline "releasing" state.
+    // Raw `presence` is still used for the visibility gate (> 0.02) so σ
+    // geometry fades out smoothly over the full releasing window.
+    const sigmaVisualPresence = sigmaPresent ? 1.0 : presence;
 
     // Animation fractions for "approaching" and "detaching" phases.
     const { liftFactor, assembleFraction, detachFraction } = computeAnimationFractions(manifest, snapshot);
@@ -1583,9 +1589,9 @@ class SchematicBuilder implements GeometryBuilder {
       // the holoenzyme").
       const releasedCenter: [number, number, number] = [38, 68, az];
 
-      const cx = boundX * presence + releasedCenter[0] * (1 - presence);
-      const cy = (boundY * presence + releasedCenter[1] * (1 - presence)) + liftY;
-      const cz = boundZ * presence + releasedCenter[2] * (1 - presence);
+      const cx = boundX * sigmaVisualPresence + releasedCenter[0] * (1 - sigmaVisualPresence);
+      const cy = (boundY * sigmaVisualPresence + releasedCenter[1] * (1 - sigmaVisualPresence)) + liftY;
+      const cz = boundZ * sigmaVisualPresence + releasedCenter[2] * (1 - sigmaVisualPresence);
 
       for (const a of INDOLE_TEMPLATE) {
         atoms.push({
@@ -1622,7 +1628,7 @@ class SchematicBuilder implements GeometryBuilder {
     //
     // Chain T — "trapped" bases (everything inside RNAP while σ is bound):
     //   • Rendered for the *full* RNA length whenever σ is present
-    //     (`presence > 0.05`).  Hybrid window AND 5′ excess both go here —
+    //     (`presence >= 0.9`).  Hybrid window AND 5′ excess both go here —
     //     no part of the transcript exits the body until σ leaves.
     //   • Drawn as a tight cluster coiled near the RNAP body interior,
     //     coloured amber to signal they cannot exit.
@@ -1882,9 +1888,15 @@ class SchematicBuilder implements GeometryBuilder {
             anchorY = a[1];
             anchorZ = a[2];
           } else {
-            anchorX = rnapCenter[0];
-            anchorY = 0; // rnapCenter Y is liftY; liftY is added uniformly below
-            anchorZ = rnapCenter[2];
+            // σ1.1 is part of σ⁷⁰, not RNAP.  Its bound Z must stay at the
+            // promoter (Z = 0, the TSS) regardless of where RNAP has slid to
+            // after promoter escape.  Before the scrunching fix rnapCenter[2]
+            // was always 0 here (RNAP tracked position, but position=+1 during
+            // approach → rnapAxisZ=0), so this is a no-op for the approach
+            // phase; it only matters post-escape when RNAP has jumped downstream.
+            anchorX = rnapCenter[0]; // always 0
+            anchorY = 0;             // liftY added uniformly below
+            anchorZ = 0;             // promoter / TSS, not rnapCenter[2]
           }
 
           // Bound position = anchor + per-region boundOffset.
@@ -1912,9 +1924,9 @@ class SchematicBuilder implements GeometryBuilder {
           const releasedZ = boundZ + SIGMA_RELEASE_OFFSET[2];
 
           // Presence lerp: assembled → released as presence goes 1 → 0.
-          const x = assembledX * presence + releasedX * (1 - presence);
-          const y = (assembledY * presence + releasedY * (1 - presence)) + liftY;
-          const z = assembledZ * presence + releasedZ * (1 - presence);
+          const x = assembledX * sigmaVisualPresence + releasedX * (1 - sigmaVisualPresence);
+          const y = (assembledY * sigmaVisualPresence + releasedY * (1 - sigmaVisualPresence)) + liftY;
+          const z = assembledZ * sigmaVisualPresence + releasedZ * (1 - sigmaVisualPresence);
 
           const atom: Atom = {
             elem: "C",
@@ -1937,7 +1949,7 @@ class SchematicBuilder implements GeometryBuilder {
               id: `sigma:${sa.region}`,
               text: sa.label,
               position: [x, y + 7, z],
-              opacity: presence,
+              opacity: sigmaVisualPresence,
             });
           }
         }
@@ -1976,8 +1988,8 @@ class SchematicBuilder implements GeometryBuilder {
           const assembledX = boundX * assembleFraction + preAssembleX * (1 - assembleFraction);
           const assembledY = boundY * assembleFraction + preAssembleY * (1 - assembleFraction);
 
-          const x = assembledX * presence + releasedX * (1 - presence);
-          const y = (assembledY * presence + releasedY * (1 - presence)) + liftY;
+          const x = assembledX * sigmaVisualPresence + releasedX * (1 - sigmaVisualPresence);
+          const y = (assembledY * sigmaVisualPresence + releasedY * (1 - sigmaVisualPresence)) + liftY;
           const z = anchor[2];
 
           const atom: Atom = {
@@ -2093,7 +2105,7 @@ export function computeStrandFrame(
   const hasBubble = bubbleHiIdx > bubbleLoIdx;
   // σ⁷⁰ presence — needed before rnapAxisZ (scrunching lock logic).
   const presence = getSigma70Presence(manifest, snapshot);
-  const sigmaPresent = presence > 0.05;
+  const sigmaPresent = presence >= 0.9;
   // RNAP Z anchor — same logic as build(): locked at Z=0 while σ is bound
   // (scrunching — DNA pulled into RNAP, not RNAP sliding), slides with
   // positionIdx once σ releases.
