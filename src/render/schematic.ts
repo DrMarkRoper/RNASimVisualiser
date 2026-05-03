@@ -1392,6 +1392,9 @@ class SchematicBuilder implements GeometryBuilder {
 
     // σ⁷⁰ presence — monotonic function of simulation time.
     const presence = getSigma70Presence(manifest, snapshot);
+    // Needed early (before rnapAxisZ) to gate the scrunching vs elongation
+    // RNAP-position logic below.
+    const sigmaPresent = presence > 0.05;
 
     // Animation fractions for "approaching" and "detaching" phases.
     const { liftFactor, assembleFraction, detachFraction } = computeAnimationFractions(manifest, snapshot);
@@ -1403,17 +1406,19 @@ class SchematicBuilder implements GeometryBuilder {
     // bubble-Z parameterisation.
     const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, boneLen);
     const hasBubble = bubbleHiIdx > bubbleLoIdx;
-    // RNAP Z anchor — always at the natural B-helix position of the
-    // active-site index.  The old code used bubbleStartZ + t *
-    // BUBBLE_PHYSICAL_WIDTH when positionIdx fell inside the bubble,
-    // but that formula diverges from the natural position as the bubble
-    // shrinks (t → 1 while BUBBLE_PHYSICAL_WIDTH stays fixed), causing
-    // RNAP and the RNA anchor to drift upstream during bubble collapse.
-    // With the backbone now using bubbleSize * RISE_PER_BP (not the
-    // fixed BUBBLE_PHYSICAL_WIDTH), the two formulas are equivalent
-    // during normal 13-base elongation and the natural-position formula
-    // stays consistent with the backbone across all bubble sizes.
-    const rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
+    // RNAP Z anchor.
+    //
+    // σ⁷⁰ bound (initiation / scrunching): RNAP is physically clamped to the
+    // promoter by σ⁷⁰.  `snapshot.position` advances as the active site
+    // translocates downstream, but the RNAP *body* stays fixed at the TSS
+    // (Z = 0).  It is the downstream DNA that is pulled INTO the RNAP cleft
+    // (scrunching), not RNAP sliding along the DNA.  Lock rnapAxisZ = 0.
+    //
+    // σ⁷⁰ released (elongation / detach): RNAP translocates normally with
+    // positionIdx.  Formula is the natural B-helix Z of the active-site index.
+    const rnapAxisZ = sigmaPresent
+      ? 0
+      : (positionIdx - tssIndex) * RISE_PER_BP;
     const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
     // ----------------------------------------------------------------
@@ -1633,7 +1638,7 @@ class SchematicBuilder implements GeometryBuilder {
     // this transition reads as "σ leaves → RNA spools out".
     // ----------------------------------------------------------------
     const rna = snapshot.rna_sequence;
-    const sigmaPresent = presence > 0.05;
+    // sigmaPresent is defined earlier (before rnapAxisZ) — reused here.
 
     // RNA exit anchor.  Post-Phase-B the RNA exit channel runs roughly
     // *parallel to the upstream DNA*, exiting from the upstream face of
@@ -2086,14 +2091,18 @@ export function computeStrandFrame(
   const liftY = LIFT_HEIGHT_ANG * liftFactor;
   const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, backbone.length);
   const hasBubble = bubbleHiIdx > bubbleLoIdx;
-  // Natural B-helix position — consistent with the updated backbone
-  // formula (see build() comment above for rationale).
-  const rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
+  // σ⁷⁰ presence — needed before rnapAxisZ (scrunching lock logic).
+  const presence = getSigma70Presence(manifest, snapshot);
+  const sigmaPresent = presence > 0.05;
+  // RNAP Z anchor — same logic as build(): locked at Z=0 while σ is bound
+  // (scrunching — DNA pulled into RNAP, not RNAP sliding), slides with
+  // positionIdx once σ releases.
+  const rnapAxisZ = sigmaPresent
+    ? 0
+    : (positionIdx - tssIndex) * RISE_PER_BP;
   const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
   // RNA chain assignment + positions — mirror of build().
-  const presence = getSigma70Presence(manifest, snapshot);
-  const sigmaPresent = presence > 0.05;
   const rna = snapshot.rna_sequence;
   const baseHybridLen = Math.min(rna.length, HYBRID_LEN_SCHEMATIC);
   const effectiveHybridLen = hasBubble ? Math.min(baseHybridLen, bubbleSize) : 0;
