@@ -229,11 +229,19 @@ function computeBackbone(
   // elongation.  Upstream duplex bases at i < bubbleLoIdx have axis Z
   // that depends on i alone, so they're frame-stationary.
   const bubbleStartZ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
-  // Physical bubble end: a fixed Z offset downstream of the start.  This
-  // is what implements scrunching — bubbleEndZ doesn't depend on
-  // bubble_size, only on bubble_upstream, so as the engine adds bases to
-  // the bubble during initiation they pack into the same Z extent.
-  const bubbleEndZ = bubbleStartZ + BUBBLE_PHYSICAL_WIDTH;
+  // Physical bubble end: anchored to the downstream bubble edge at its
+  // natural B-helix position.  Using bubbleSize * RISE_PER_BP (rather
+  // than the fixed BUBBLE_PHYSICAL_WIDTH) keeps downstream bases at
+  // their natural positions at all times — critical during the detach
+  // bubble-collapse where bubbleHiIdx shrinks while bubbleLoIdx (and
+  // thus bubbleStartZ) stays fixed.  During normal elongation
+  // bubbleSize = 13 so bubbleSize * RISE_PER_BP = BUBBLE_PHYSICAL_WIDTH
+  // exactly, meaning this is a no-op change for those frames.
+  // During scrunching (bubbleSize > 13) the bubble is now allowed to
+  // grow physically rather than compressing bases into a fixed extent —
+  // more physically accurate (the transcription bubble genuinely grows
+  // during open-complex formation).
+  const bubbleEndZ = bubbleStartZ + bubbleSize * RISE_PER_BP;
 
   const out: BaseAxisPoint[] = [];
   for (let i = 0; i < len; i++) {
@@ -1255,6 +1263,97 @@ function computeRnaTangents(out: RnaBasePos[]): void {
 }
 
 // -------------------------------------------------------------------------
+// Frozen RNA positions for the detaching phase.
+//
+// During "detaching" the bubble_downstream index shrinks one base per frame
+// as the upstream half of the bubble re-anneals.  The hybrid RNA bases are
+// anchored to bubbleHiIdx inside computeHomePositions, so as bubbleHiIdx
+// decreases each frame the hybrid drifts upstream in Z — a visually jarring
+// "snap-back" effect.
+//
+// Fix: capture the RNA scene positions at the very first detaching frame
+// (detachFraction = 0, full-size bubble, no X-drift yet) and hold them
+// frozen for all subsequent detach frames.  Only the X-drift animation
+// (RNA drifting away as RNAP lifts) is applied on top as a rigid-body
+// shift, so the strand stays put in Z while RNAP visibly lifts off.
+// -------------------------------------------------------------------------
+
+const frozenDetachRnaPositionsCache = new WeakMap<SimulationManifest, RnaBasePos[] | null>();
+
+/**
+ * Return the RNA base-position array frozen at the first detaching frame,
+ * or null if no detach phase exists or the RNA is empty at that point.
+ * Result is cached per manifest; safe to call every render frame.
+ */
+function getFrozenDetachRnaPositions(manifest: SimulationManifest): RnaBasePos[] | null {
+  if (frozenDetachRnaPositionsCache.has(manifest)) {
+    return frozenDetachRnaPositionsCache.get(manifest) ?? null;
+  }
+
+  const detachRange = getPhaseRanges(manifest).detach;
+  if (!detachRange) {
+    frozenDetachRnaPositionsCache.set(manifest, null);
+    return null;
+  }
+
+  // Find the first snapshot whose frame == detach start.
+  const firstDetachSnap = manifest.snapshots.find(s => s.frame === detachRange.start);
+  if (!firstDetachSnap || firstDetachSnap.rna_sequence.length === 0) {
+    frozenDetachRnaPositionsCache.set(manifest, null);
+    return null;
+  }
+
+  // Compute backbone and context identical to what build() would produce for
+  // the first detach frame (detachFraction = 0, liftY = 0).
+  const tssIndex = manifest.sequence.tss_index;
+  const len      = manifest.sequence.sequence_length;
+  const fBubbleLoIdx = safeBackboneIdx(firstDetachSnap.bubble_upstream,   tssIndex, len);
+  const fBubbleHiIdx = safeBackboneIdx(firstDetachSnap.bubble_downstream, tssIndex, len);
+  const fBackbone    = computeBackbone(manifest, firstDetachSnap, fBubbleLoIdx, fBubbleHiIdx);
+  const fBubbleSize  = Math.max(1, fBubbleHiIdx - fBubbleLoIdx);
+  const fHasBubble   = fBubbleHiIdx > fBubbleLoIdx;
+
+  const fPosIdx   = safeBackboneIdx(firstDetachSnap.position, tssIndex, fBackbone.length);
+  const fRnapAxisZ = (fPosIdx - tssIndex) * RISE_PER_BP;
+  // detachFraction = 0 at the first frame → liftY = 0
+  const fRnapCenter: [number, number, number] = [0, 0, fRnapAxisZ];
+
+  const fPresence       = getSigma70Presence(manifest, firstDetachSnap);
+  const fSigmaPresent   = fPresence > 0.05;
+  const fRna            = firstDetachSnap.rna_sequence;
+  const fBaseHybridLen  = Math.min(fRna.length, HYBRID_LEN_SCHEMATIC);
+  const fEffHybridLen   = fHasBubble ? Math.min(fBaseHybridLen, fBubbleSize) : 0;
+  const fShowHybrid     = !fSigmaPresent && fHasBubble && fEffHybridLen > 0;
+
+  // rnaAnchor at detach start: detachFraction = 0 → no X-drift, so
+  // rnaAnchor = rnaAnchorBound exactly.
+  const fRnaAnchorBound: [number, number, number] = [
+    fRnapCenter[0] + RNA_EXIT_X_OFFSET,
+    fRnapCenter[1] + RNA_EXIT_Y_OFFSET,
+    fRnapCenter[2],
+  ];
+
+  const positions = computeRnaBasePositions({
+    manifest,
+    snapshot:          firstDetachSnap,
+    rnapCenter:        fRnapCenter,
+    backbone:          fBackbone,
+    bubbleLoIdx:       fBubbleLoIdx,
+    bubbleHiIdx:       fBubbleHiIdx,
+    hasBubble:         fHasBubble,
+    sigmaPresent:      fSigmaPresent,
+    effectiveHybridLen: fEffHybridLen,
+    showHybrid:        fShowHybrid,
+    rnaAnchor:         fRnaAnchorBound,   // no drift at frame 0
+    rnaAnchorBound:    fRnaAnchorBound,
+  });
+  computeRnaTangents(positions);
+
+  frozenDetachRnaPositionsCache.set(manifest, positions);
+  return positions;
+}
+
+// -------------------------------------------------------------------------
 // Builder
 // -------------------------------------------------------------------------
 
@@ -1274,42 +1373,15 @@ class SchematicBuilder implements GeometryBuilder {
     const rawBubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, len);
     const rawBubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
 
-    // Detach early-collapse animation.  The engine animates the bubble
-    // closing across ~14 detach frames, but a sudden snap on detach
-    // frame 1 (followed by 13 frames of nothing happening to the DNA)
-    // reads worse than a brief but visible re-melt.  We override the
-    // bubble bounds so the bubble visibly shrinks across exactly
-    // DETACH_BUBBLE_FRAMES frames at the start of the detach phase, then
-    // snap closed for the remainder of detach.
-    //
-    // Hybrid melts in the same window: each frame the bubble loses
-    // ~(13 / DETACH_BUBBLE_FRAMES) ≈ 2.6 bases, and a corresponding
-    // chunk of hybrid (chain T amber) becomes exit thread (chain R
-    // green).  By the end of the early-detach window the entire
-    // hybrid has been ejected and the duplex is straight.
-    const DETACH_BUBBLE_FRAMES = 5;
-    const INITIAL_DETACH_BUBBLE_BP = HYBRID_LEN_SCHEMATIC + 4; // ≈13, open complex
-    let detachFrameCount = -1;
-    if (snapshot.phase === "detaching") {
-      const ranges = getPhaseRanges(manifest);
-      if (ranges.detach) {
-        detachFrameCount = snapshot.frame - ranges.detach.start;
-      }
-    }
-    let bubbleHiIdx = rawBubbleHiIdx;
-    if (snapshot.phase === "detaching") {
-      if (detachFrameCount >= 0 && detachFrameCount < DETACH_BUBBLE_FRAMES) {
-        const shrinkFactor = 1 - detachFrameCount / DETACH_BUBBLE_FRAMES;
-        const targetSize = Math.max(0, Math.floor(INITIAL_DETACH_BUBBLE_BP * shrinkFactor));
-        // Clamp to the engine's downstream bound — never artificially
-        // grow the bubble past where the engine has it.
-        bubbleHiIdx = Math.min(rawBubbleHiIdx, rawBubbleLoIdx + targetSize);
-      } else {
-        // Past the early-detach window: collapse fully.
-        bubbleHiIdx = rawBubbleLoIdx;
-      }
-    }
+    // The engine already animates bubble_downstream smoothly from its
+    // termination value down to bubble_upstream over all 15 detach frames
+    // (1 base per frame), so the renderer's old artificial early-collapse
+    // override is no longer needed and was causing downstream-DNA drift.
+    // Use the engine's values directly; computeBackbone's new bubbleEndZ
+    // formula (bubbleSize * RISE_PER_BP) ensures downstream bases stay at
+    // their natural B-helix positions throughout the collapse.
     const bubbleLoIdx = rawBubbleLoIdx;
+    const bubbleHiIdx = rawBubbleHiIdx;
     const bubbleSize = Math.max(1, bubbleHiIdx - bubbleLoIdx);
 
     const backbone = computeBackbone(manifest, snapshot, bubbleLoIdx, bubbleHiIdx);
@@ -1331,18 +1403,17 @@ class SchematicBuilder implements GeometryBuilder {
     // bubble-Z parameterisation.
     const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, boneLen);
     const hasBubble = bubbleHiIdx > bubbleLoIdx;
-    let rnapAxisZ: number;
-    if (
-      hasBubble &&
-      positionIdx >= bubbleLoIdx &&
-      positionIdx <= bubbleHiIdx
-    ) {
-      const bubbleStartZ_ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
-      const t = (positionIdx - bubbleLoIdx) / bubbleSize;
-      rnapAxisZ = bubbleStartZ_ + t * BUBBLE_PHYSICAL_WIDTH;
-    } else {
-      rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
-    }
+    // RNAP Z anchor — always at the natural B-helix position of the
+    // active-site index.  The old code used bubbleStartZ + t *
+    // BUBBLE_PHYSICAL_WIDTH when positionIdx fell inside the bubble,
+    // but that formula diverges from the natural position as the bubble
+    // shrinks (t → 1 while BUBBLE_PHYSICAL_WIDTH stays fixed), causing
+    // RNAP and the RNA anchor to drift upstream during bubble collapse.
+    // With the backbone now using bubbleSize * RISE_PER_BP (not the
+    // fixed BUBBLE_PHYSICAL_WIDTH), the two formulas are equivalent
+    // during normal 13-base elongation and the natural-position formula
+    // stays consistent with the backbone across all bubble sizes.
+    const rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
     const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
     // ----------------------------------------------------------------
@@ -1660,23 +1731,46 @@ class SchematicBuilder implements GeometryBuilder {
     // by construction) — same model the pre-refactor render used.
     // ----------------------------------------------------------------
     if (rna.length > 0) {
-      const rnaPositions = computeRnaBasePositions({
-        manifest, snapshot,
-        rnapCenter,
-        backbone,
-        bubbleLoIdx,
-        bubbleHiIdx,
-        hasBubble,
-        sigmaPresent,
-        effectiveHybridLen,
-        showHybrid,
-        rnaAnchor,
-        rnaAnchorBound,
-      });
-      // Atomic-mode prep: finite-difference per-base tangents off the
-      // final position array.  Schematic mode ignores the tangent
-      // field; atomic mode reads it via the RnaBasePos exported below.
-      computeRnaTangents(rnaPositions);
+      // During detaching: use RNA positions frozen at the first detach frame
+      // so the hybrid/tail don't drift upstream as the bubble collapses.
+      // Apply only the X-drift animation as a rigid-body shift on top.
+      let rnaPositions: RnaBasePos[];
+      if (snapshot.phase === "detaching") {
+        const frozen = getFrozenDetachRnaPositions(manifest);
+        if (frozen !== null && frozen.length === rna.length) {
+          const xShift = -RNA_DRIFT_X * detachFraction;
+          rnaPositions = frozen.map(p => ({
+            ...p,
+            pos: [p.pos[0] + xShift, p.pos[1], p.pos[2]] as [number, number, number],
+          }));
+          // Tangents are shift-invariant; frozen copy is already correct.
+        } else {
+          // Fallback (frozen unavailable or RNA length mismatch).
+          rnaPositions = computeRnaBasePositions({
+            manifest, snapshot, rnapCenter, backbone, bubbleLoIdx, bubbleHiIdx,
+            hasBubble, sigmaPresent, effectiveHybridLen, showHybrid, rnaAnchor, rnaAnchorBound,
+          });
+          computeRnaTangents(rnaPositions);
+        }
+      } else {
+        rnaPositions = computeRnaBasePositions({
+          manifest, snapshot,
+          rnapCenter,
+          backbone,
+          bubbleLoIdx,
+          bubbleHiIdx,
+          hasBubble,
+          sigmaPresent,
+          effectiveHybridLen,
+          showHybrid,
+          rnaAnchor,
+          rnaAnchorBound,
+        });
+        // Atomic-mode prep: finite-difference per-base tangents off the
+        // final position array.  Schematic mode ignores the tangent
+        // field; atomic mode reads it via the RnaBasePos exported below.
+        computeRnaTangents(rnaPositions);
+      }
 
       let prevT: number | null = null;
       let prevR: number | null = null;
@@ -1979,27 +2073,10 @@ export function computeStrandFrame(
   const rawBubbleLoIdx = safeBackboneIdx(snapshot.bubble_upstream,   tssIndex, len);
   const rawBubbleHiIdx = safeBackboneIdx(snapshot.bubble_downstream, tssIndex, len);
 
-  // Replicate the early-detach bubble-collapse override used in build().
-  const DETACH_BUBBLE_FRAMES = 5;
-  const INITIAL_DETACH_BUBBLE_BP = HYBRID_LEN_SCHEMATIC + 4;
-  let detachFrameCount = -1;
-  if (snapshot.phase === "detaching") {
-    const ranges = getPhaseRanges(manifest);
-    if (ranges.detach) {
-      detachFrameCount = snapshot.frame - ranges.detach.start;
-    }
-  }
-  let bubbleHiIdx = rawBubbleHiIdx;
-  if (snapshot.phase === "detaching") {
-    if (detachFrameCount >= 0 && detachFrameCount < DETACH_BUBBLE_FRAMES) {
-      const shrinkFactor = 1 - detachFrameCount / DETACH_BUBBLE_FRAMES;
-      const targetSize = Math.max(0, Math.floor(INITIAL_DETACH_BUBBLE_BP * shrinkFactor));
-      bubbleHiIdx = Math.min(rawBubbleHiIdx, rawBubbleLoIdx + targetSize);
-    } else {
-      bubbleHiIdx = rawBubbleLoIdx;
-    }
-  }
+  // The engine animates bubble_downstream smoothly during detaching;
+  // use its values directly (same as the updated build() above).
   const bubbleLoIdx = rawBubbleLoIdx;
+  const bubbleHiIdx = rawBubbleHiIdx;
   const bubbleSize = Math.max(1, bubbleHiIdx - bubbleLoIdx);
 
   const backbone = computeBackbone(manifest, snapshot, bubbleLoIdx, bubbleHiIdx);
@@ -2009,18 +2086,9 @@ export function computeStrandFrame(
   const liftY = LIFT_HEIGHT_ANG * liftFactor;
   const positionIdx = safeBackboneIdx(snapshot.position, tssIndex, backbone.length);
   const hasBubble = bubbleHiIdx > bubbleLoIdx;
-  let rnapAxisZ: number;
-  if (
-    hasBubble &&
-    positionIdx >= bubbleLoIdx &&
-    positionIdx <= bubbleHiIdx
-  ) {
-    const bubbleStartZ_ = (bubbleLoIdx - tssIndex) * RISE_PER_BP;
-    const t = (positionIdx - bubbleLoIdx) / bubbleSize;
-    rnapAxisZ = bubbleStartZ_ + t * BUBBLE_PHYSICAL_WIDTH;
-  } else {
-    rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
-  }
+  // Natural B-helix position — consistent with the updated backbone
+  // formula (see build() comment above for rationale).
+  const rnapAxisZ = (positionIdx - tssIndex) * RISE_PER_BP;
   const rnapCenter: [number, number, number] = [0, liftY, rnapAxisZ];
 
   // RNA chain assignment + positions — mirror of build().
@@ -2047,20 +2115,39 @@ export function computeStrandFrame(
 
   let rnaPositions: RnaBasePos[] = [];
   if (rna.length > 0) {
-    rnaPositions = computeRnaBasePositions({
-      manifest, snapshot,
-      rnapCenter,
-      backbone,
-      bubbleLoIdx,
-      bubbleHiIdx,
-      hasBubble,
-      sigmaPresent,
-      effectiveHybridLen,
-      showHybrid,
-      rnaAnchor,
-      rnaAnchorBound,
-    });
-    computeRnaTangents(rnaPositions);
+    // Detaching: freeze RNA at first-detach positions to stop upstream drift.
+    if (snapshot.phase === "detaching") {
+      const frozen = getFrozenDetachRnaPositions(manifest);
+      if (frozen !== null && frozen.length === rna.length) {
+        const xShift = -RNA_DRIFT_X * detachFraction;
+        rnaPositions = frozen.map(p => ({
+          ...p,
+          pos: [p.pos[0] + xShift, p.pos[1], p.pos[2]] as [number, number, number],
+        }));
+        // Tangents are shift-invariant; frozen copy is already correct.
+      } else {
+        rnaPositions = computeRnaBasePositions({
+          manifest, snapshot, rnapCenter, backbone, bubbleLoIdx, bubbleHiIdx,
+          hasBubble, sigmaPresent, effectiveHybridLen, showHybrid, rnaAnchor, rnaAnchorBound,
+        });
+        computeRnaTangents(rnaPositions);
+      }
+    } else {
+      rnaPositions = computeRnaBasePositions({
+        manifest, snapshot,
+        rnapCenter,
+        backbone,
+        bubbleLoIdx,
+        bubbleHiIdx,
+        hasBubble,
+        sigmaPresent,
+        effectiveHybridLen,
+        showHybrid,
+        rnaAnchor,
+        rnaAnchorBound,
+      });
+      computeRnaTangents(rnaPositions);
+    }
 
     // Remap backtracked RNA bases (the last backtrack_steps of the nascent
     // RNA) to chain X with secondary-channel coordinates.  The schematic
