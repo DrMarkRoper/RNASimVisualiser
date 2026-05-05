@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="rnasim">
+  <title>rnasim</title>
+  <!--
+    rnasim favicon — DNA double helix + nascent RNA transcript
+    Amber (#f5a623)  : DNA strands  — primary accent from style guide
+    Green  (#4caf50) : RNA strand   — secondary accent from style guide
+    Two depth-layered S-curves form the helix; a gentle green arc exits
+    the transcription bubble at the midpoint.
+  -->
+
+  <!-- Dark rounded-square background (slightly deeper than --bg #1c1c1e) -->
+  <rect width="32" height="32" rx="7" fill="#141416"/>
+
+  <!-- ── DNA back strand (dimmed amber — gives depth illusion) ─────── -->
+  <path d="M 11,4 C 11,10 21,10 21,16 C 21,22 11,22 11,28"
+        fill="none" stroke="#f5a623" stroke-width="2.2"
+        stroke-linecap="round" opacity="0.5"/>
+
+  <!-- ── DNA front strand (full amber) ─────────────────────────────── -->
+  <path d="M 21,4 C 21,10 11,10 11,16 C 11,22 21,22 21,28"
+        fill="none" stroke="#f5a623" stroke-width="2.2"
+        stroke-linecap="round"/>
+
+  <!-- ── Base-pair rungs — faint horizontal bridges ─────────────────── -->
+  <!-- Top rung: strands are at widest separation (x 11 ↔ 21) -->
+  <line x1="11" y1="4"  x2="21" y2="4"
+        stroke="#f5a623" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+  <!-- Middle rung: strands cross at the bubble centre -->
+  <line x1="11" y1="16" x2="21" y2="16"
+        stroke="#f5a623" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+  <!-- Bottom rung -->
+  <line x1="11" y1="28" x2="21" y2="28"
+        stroke="#f5a623" stroke-width="1.4" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- ── Nascent RNA exiting the transcription bubble (green) ─────────
+       Starts at the back-strand midpoint (21,16) — right at the bubble
+       exit channel — and weaves toward the lower-right corner.
+  -->
+  <path d="M 21,16 C 26,18 24,23 28,27"
+        fill="none" stroke="#4caf50" stroke-width="2.2"
+        stroke-linecap="round"/>
+</svg>
