@@ -229,6 +229,14 @@ code, pre { font-family: var(--mono); }
   font-style: italic;
   font-size: 11px;
 }
+/* Disabled option — shown greyed-out and non-interactive for protein modes
+   that don't support atomic rendering (σ⁷⁰ and RNAP). */
+.ro-opt.ro-opt-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  cursor: not-allowed;
+  font-style: italic;
+}
 
 .render-options-footer {
   border-top: 1px solid var(--border);
@@ -348,6 +356,15 @@ code, pre { font-family: var(--mono); }
 
 .viewer3d { position: absolute; inset: 0; }
 .viewer3d-canvas { position: absolute; inset: 0; }
+/* Render-mode picker positioned in the top-right corner of the canvas.
+   z-index 3 keeps it above the WebGL canvas (z-index 0) and the legend
+   chips at the bottom (z-index 2). */
+.viewer3d-render-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+}
 .viewer3d-legend {
   position: absolute;
   bottom: 8px;
@@ -734,6 +751,10 @@ code, pre { font-family: var(--mono); }
 }
 .ruler-tick {
   position: absolute;
+  /* font-size must match .seq-base (13px) so that 1ch here equals 1 base
+     column width — without this the ruler ticks are placed with 10px ch
+     units (from the parent .seq-track.ruler) and drift out of alignment. */
+  font-size: 13px;
   transform: translateX(-50%);
   padding-left: 0.5ch; /* centre on the char cell */
   white-space: nowrap;
@@ -866,8 +887,21 @@ code, pre { font-family: var(--mono); }
   color: #9ca3af;
   font-weight: 500;
 }
+/* Override default near-black label for chips whose background is dark enough
+   that #0a0a0a becomes unreadable (w433_intercalated #831843, open_complex
+   #0072B2).  White text gives sufficient contrast on both. */
+.phase-chip.phase-chip-light-text { color: #ffffff; }
+
 .frame-readout { color: var(--fg-muted); font-family: var(--mono); font-size: 12px; }
-.fps-control { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted); }
+/* Right-aligned group wrapping the frame readout + fps control so they are
+   always flush-right regardless of the variable-width state chips on the left. */
+.timeline-right-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.fps-control { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted); }
 
 .lane-group {
   display: grid;
@@ -1669,4 +1703,73 @@ code, pre { font-family: var(--mono); }
   border-color: var(--accent);
   color: var(--accent);
   outline: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* About tab                                                           */
+/* ------------------------------------------------------------------ */
+
+/* Placeholder text for the "Hi I'm Mark Roper…" section */
+.about-placeholder {
+  color: var(--fg-muted);
+  font-style: italic;
+  font-size: 0.92em;
+}
+
+/* Stage headings (h4) inside the About tab */
+h4.about-stage {
+  margin: 1.1em 0 0.3em;
+  font-size: 0.88em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  text-transform: none;
+}
+
+/* Reference list — tighter spacing, monospace numbers */
+ol.about-refs {
+  margin: 0.5em 0 0;
+  padding-left: 1.6em;
+  font-size: 0.8em;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+ol.about-refs li {
+  margin-bottom: 0.35em;
+}
+ol.about-refs li strong {
+  color: var(--fg);
+}
+
+/* DOI / external links inside the references */
+a.about-doi {
+  color: var(--accent);
+  word-break: break-all;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent);
+}
+a.about-doi:hover {
+  border-bottom-style: solid;
+}
+
+/* Definition lists used for timeline state explanations */
+.info-panel dl {
+  margin: 0.4em 0 0.8em;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15em 0.8em;
+}
+.info-panel dt {
+  font-family: var(--mono);
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--fg);
+  padding-top: 0.1em;
+  white-space: nowrap;
+}
+.info-panel dd {
+  margin: 0;
+  font-size: 0.82em;
+  color: var(--fg-muted);
+  line-height: 1.45;
 }

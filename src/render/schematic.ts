@@ -1962,9 +1962,16 @@ class SchematicBuilder implements GeometryBuilder {
         // at the top of the σ⁷⁰ section above).  When overall mode is
         // atomic, atomic.ts strips chain S and PDB chain F supplies the
         // cartoon, so this code path is invisible in that case.
+        //
+        // In "schematic" mode, only regions 2 (-10) and 4 (-35) are drawn —
+        // these are the most pedagogically relevant contacts.  σ3 (spacer)
+        // and σ1.1 (inside RNAP) are suppressed to reduce visual clutter.
+        const domainsToRender = options.sigma === "schematic"
+          ? [LEGACY_SIGMA_DOMAINS[0], LEGACY_SIGMA_DOMAINS[2]] // σ4 + σ2 only
+          : LEGACY_SIGMA_DOMAINS;
         let prevSigmaSerial: number | null = null;
-        for (let d = 0; d < LEGACY_SIGMA_DOMAINS.length; d++) {
-          const dom = LEGACY_SIGMA_DOMAINS[d];
+        for (let d = 0; d < domainsToRender.length; d++) {
+          const dom = domainsToRender[d];
           const domIdx = safeBackboneIdx(dom.coord, tssIndex, boneLen);
           // Anchor on the full helix-axis position at the promoter coord —
           // post-Phase-B this is on the upstream straight section so X = 0

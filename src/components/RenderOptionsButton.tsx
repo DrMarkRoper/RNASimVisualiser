@@ -59,6 +59,12 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
 };
 
 const PROTEIN_MODES: ProteinMode[] = ["schematic", "mesh", "atomic"];
+/** Human-readable label for each protein mode in the popup. */
+const PROTEIN_MODE_LABELS: Record<ProteinMode, string> = {
+  schematic: "schematic",
+  mesh:      "regions",   // renamed from "mesh" — describes what it shows
+  atomic:    "atomic",
+};
 
 /**
  * Collapse a RenderOptions object to a single label for the button.
@@ -110,10 +116,13 @@ export function RenderOptionsButton({ options, onChange }: Props) {
   };
 
   const setAllNucleic = (v: NucleicMode) => {
+    // "all atomic" applies only to the three nucleic-acid strands — σ⁷⁰ and
+    // RNAP do not support per-component atomic rendering.
+    // "all schematic" resets everything including σ⁷⁰ and RNAP.
     onChange({
       ...options,
       coding: v, template: v, rna: v,
-      sigma: v, rnap: v,
+      ...(v === "schematic" ? { sigma: "schematic", rnap: "schematic" } : {}),
     });
   };
 
@@ -148,14 +157,14 @@ export function RenderOptionsButton({ options, onChange }: Props) {
 
           <div className="render-options-grid">
             <NucleicRow
-              label="Template"
-              value={options.template}
-              onChange={(v) => update({ template: v })}
-            />
-            <NucleicRow
               label="Coding"
               value={options.coding}
               onChange={(v) => update({ coding: v })}
+            />
+            <NucleicRow
+              label="Template"
+              value={options.template}
+              onChange={(v) => update({ template: v })}
             />
             <NucleicRow
               label="RNA"
@@ -166,20 +175,15 @@ export function RenderOptionsButton({ options, onChange }: Props) {
               label="σ⁷⁰ / W433"
               value={options.sigma}
               onChange={(v) => update({ sigma: v })}
+              disableAtomic
             />
             <ProteinRow
               label="RNAP"
               value={options.rnap}
               onChange={(v) => update({ rnap: v })}
+              disableAtomic
             />
           </div>
-
-          <footer className="render-options-footer">
-            σ⁷⁰ and RNAP support schematic / mesh independently.  Per-component
-            atomic only takes effect when *all* components are atomic — the
-            6ALF cartoon then supplies them.  Nucleic acid per-component picks
-            are stubs pending the bent-DNA geometry rewrite.
-          </footer>
         </div>
       )}
     </div>
@@ -239,25 +243,39 @@ interface ProteinRowProps {
   label: string;
   value: ProteinMode;
   onChange: (v: ProteinMode) => void;
+  /** When true, the "atomic" option is disabled and shown as not available. */
+  disableAtomic?: boolean;
 }
 
-function ProteinRow({ label, value, onChange }: ProteinRowProps) {
+function ProteinRow({ label, value, onChange, disableAtomic }: ProteinRowProps) {
   const name = `ro-${label}`;
   return (
     <>
       <div className="ro-row-label">{label}</div>
       <div className="ro-row-opts">
-        {PROTEIN_MODES.map((m) => (
-          <label key={m} className={"ro-opt" + (value === m ? " active" : "")}>
-            <input
-              type="radio"
-              name={name}
-              checked={value === m}
-              onChange={() => onChange(m)}
-            />
-            {m}
-          </label>
-        ))}
+        {PROTEIN_MODES.map((m) => {
+          const disabled = disableAtomic && m === "atomic";
+          return (
+            <label
+              key={m}
+              className={
+                "ro-opt" +
+                (value === m ? " active" : "") +
+                (disabled ? " ro-opt-disabled" : "")
+              }
+              title={disabled ? "Atomic is not available for this component" : undefined}
+            >
+              <input
+                type="radio"
+                name={name}
+                checked={value === m}
+                disabled={disabled}
+                onChange={() => !disabled && onChange(m)}
+              />
+              {PROTEIN_MODE_LABELS[m]}
+            </label>
+          );
+        })}
       </div>
     </>
   );
