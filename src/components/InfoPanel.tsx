@@ -518,8 +518,8 @@ function InfoTab({ onSwitchTab }: { onSwitchTab: (tab: InfoTab) => void }) {
           Hi, I'm Mark Roper. I've always been fascinated by genetics, but
           consistently struggled to just sit down with a textbook and learn
           it one chapter at a time. As a visual learner, I decided to build
-          this simulator to let me see the process of DNA to RNA, one step at
-          a time, and from different levels of perspective (try adjusting the
+          this simulator to let me see the process of DNA to RNA transcription, one step at
+          a time, and from different levels of abstraction (try adjusting the
           render modes, and which elements are displayed — see{" "}
           <button
             type="button"
@@ -528,7 +528,7 @@ function InfoTab({ onSwitchTab }: { onSwitchTab: (tab: InfoTab) => void }) {
           >
             Help
           </button>). This is
-          not a scientifically accurate model, but I hope it gives an added
+          not a scientifically accurate model, but I hope it provides an added
           perspective and viewpoint to those learning this amazing subject.
         </p>
       </section>
