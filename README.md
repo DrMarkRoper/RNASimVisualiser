@@ -4,7 +4,7 @@ A browser-based, frame-by-frame visualiser for mechanistic bacterial transcripti
 
 Built with React + TypeScript + Vite, rendered with [3Dmol.js](https://3dmol.csb.pitt.edu/). No backend required: drop in a `snapshots.json` manifest and the app replays every frame in the browser.
 
-<video src="DNAtoRNAv02_simulation_1.mp4" autoplay loop muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/REPLACE-WITH-YOUR-VIDEO-URL
 
 ---
 
