@@ -100,7 +100,6 @@ const RNA_EXIT_Y_OFFSET = -10;       // Å — between β (y=-22) and α (y≈-3
 // by RNAP body geometry.  At standard B-helix rise (3.4 Å/bp) this fits
 // 13 bp at natural spacing; during scrunching the same extent holds 18+
 // bp, so each base spacing decreases (the renderer's scrunching effect).
-const _BUBBLE_PHYSICAL_WIDTH = 13 * RISE_PER_BP;
 
 // -------------------------------------------------------------------------
 // Intrinsic-terminator hairpin geometry (added 2026-05-02).
@@ -124,7 +123,7 @@ const _BUBBLE_PHYSICAL_WIDTH = 13 * RISE_PER_BP;
 
 const HAIRPIN_STEM_RNA_RISE_A   = 3.3;   // Å — single-strand RNA spacing within a stem arm
 const HAIRPIN_STEM_INTERARM_A   = 9.0;   // Å — stem-pair backbone–backbone separation
-const _HAIRPIN_OPACITY_FLOOR    = 0.4;   // chain-H opacity when fold weight is 0
+// HAIRPIN_OPACITY_FLOOR = 0.4 — reserved for future per-frame opacity interpolation
 const HAIRPIN_NUC_DIST_COEFF    = 0.4;   // weight-shift coefficient — loop folds first
 // Perpendicular offset for the 5′ tail when the hairpin has formed.
 // The chain-R STEP direction is collinear with the hairpin's +ẑ_loc
