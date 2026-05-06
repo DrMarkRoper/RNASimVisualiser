@@ -4,7 +4,10 @@ A browser-based, frame-by-frame visualiser for mechanistic bacterial transcripti
 
 Built with React + TypeScript + Vite, rendered with [3Dmol.js](https://3dmol.csb.pitt.edu/). No backend required: drop in a `snapshots.json` manifest and the app replays every frame in the browser.
 
-https://github.com/user-attachments/assets/REPLACE-WITH-YOUR-VIDEO-URL
+
+https://github.com/user-attachments/assets/adb41ccb-7e45-4dd5-8bff-f5515e66641b
+
+
 
 ---
 
