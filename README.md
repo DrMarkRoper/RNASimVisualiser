@@ -2,7 +2,8 @@
 
 A browser-based, frame-by-frame visualiser for mechanistic bacterial transcription simulations. Watch σ⁷⁰ find and open a promoter, RNA polymerase scrunch and escape, elongate, pause, backtrack, and terminate — all animated in 3D and annotated on a live sequence panel.
 
-Built with React + TypeScript + Vite, rendered with [3Dmol.js](https://3dmol.csb.pitt.edu/). No backend required: drop in a `snapshots.json` manifest and the app replays every frame in the browser.
+Try the live demo: <a href="https://DrMarkRoper.github.io/DNA-to-RNA-Transcription-Visualiser" target="_blank" rel="noopener noreferrer">DNA to RNA Transcription Visualiser</a>
+
 
 
 https://github.com/user-attachments/assets/adb41ccb-7e45-4dd5-8bff-f5515e66641b
