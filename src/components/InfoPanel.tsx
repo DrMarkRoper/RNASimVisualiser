@@ -515,8 +515,14 @@ function InfoTab() {
       <section>
         <h3>About this application</h3>
         <p>
-          Hi, I'm Mark Roper…{" "}
-          <em className="about-placeholder">(more to come here)</em>
+          Hi, I'm Mark Roper. I've always been fascinated by genetics, but
+          consistently struggled to just sit down with a textbook and learn
+          it, one chapter at a time. As a visual learner, I decided to build
+          this simulator to let me see the process of DNA to RNA one step at
+          a time, and from different levels of perspective (try adjusting the
+          render modes, and which elements are displayed — see Help). This is
+          not a scientifically accurate model, but I hope it gives an added
+          perspective and viewpoint to those learning this amazing subject.
         </p>
       </section>
 
@@ -771,7 +777,7 @@ function InfoTab() {
           β′ above, ω adjacent to β′) follows the reviews by Murakami [1,
           9] and the elongation complex schematics of Santangelo &
           Artsimovitch [1]. The transcription bubble extent (13 bp) and
-          RNA:DNA hybrid length (9 bp) are from Vassylyev et al. [16] and
+          RNA:DNA hybrid length (9 bp) are from Vassylyev et al. [15] and
           corroborated by the <em>E. coli</em> cryo-EM of Kang et al. [10].
           The RNA exit channel direction is placed between the β-flap and
           the β′-clamp per [1]. The σ⁷⁰ four-region topology (σ4 at −35,
@@ -781,7 +787,7 @@ function InfoTab() {
         <p>
           The atomic model overlay uses PDB entry 6ALF (
           <em>E. coli</em> RNAP σ⁷⁰ holoenzyme), rendered in the browser
-          using 3Dmol.js [15].
+          using 3Dmol.js [16].
         </p>
       </section>
 
@@ -813,7 +819,7 @@ function InfoTab() {
             Murakami, K. S. The X-ray crystal structure of{" "}
             <em>Escherichia coli</em> RNA polymerase σ⁷⁰ holoenzyme.{" "}
             <em>J Biol Chem</em> 288, 9126–9134 (2013).{" "}
-            <a href="https://doi.org/10.1074/jbc.M113.453191" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1074/jbc.M113.453191</a>
+            <a href="https://doi.org/10.1096/fasebj.27.1_supplement.547.2" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1096/fasebj.27.1_supplement.547.2</a>
           </li>
           <li>
             Revyakin, A., Liu, C., Ebright, R. H. &amp; Strick, T. R.
@@ -881,16 +887,16 @@ function InfoTab() {
             <a href="https://doi.org/10.1093/nar/gkp892" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1093/nar/gkp892</a>
           </li>
           <li>
-            Rego, N. &amp; Koes, D. 3Dmol.js: molecular visualization
-            with WebGL.{" "}
-            <em>Bioinformatics</em> 31, 1322–1324 (2015).{" "}
-            <a href="https://doi.org/10.1093/bioinformatics/btu829" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1093/bioinformatics/btu829</a>
-          </li>
-          <li>
             Vassylyev, D. G. <em>et al.</em> Structural basis for
             transcription elongation by bacterial RNA polymerase.{" "}
             <em>Nature</em> 448, 157–162 (2007).{" "}
             <a href="https://doi.org/10.1038/nature05932" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1038/nature05932</a>
+          </li>
+          <li>
+            Rego, N. &amp; Koes, D. 3Dmol.js: molecular visualization
+            with WebGL.{" "}
+            <em>Bioinformatics</em> 31, 1322–1324 (2015).{" "}
+            <a href="https://doi.org/10.1093/bioinformatics/btu829" target="_blank" rel="noopener noreferrer" className="about-doi">doi:10.1093/bioinformatics/btu829</a>
           </li>
         </ol>
       </section>

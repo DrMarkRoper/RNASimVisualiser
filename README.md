@@ -207,19 +207,19 @@ All TSS-relative coordinates use the bacterial convention: `+1 = TSS`, no positi
 
 ## References
 
-1. Santangelo, T. J. & Artsimovitch, I. Termination and antitermination: RNA polymerase runs a stop sign. _Nat Rev Microbiol_ 9, 319–329 (2011).
-2. Larson, M. H., Greenleaf, W. J., Landick, R. & Block, S. M. Applied force reveals mechanistic and energetic details of transcription termination. _Cell_ 132, 971–982 (2008).
-3. Nudler, E., Mustaev, A., Lukhtanov, E. & Goldfarb, A. The RNA-DNA hybrid maintains the register of transcription by preventing backtracking of RNA polymerase. _Cell_ 89, 33–41 (1997).
-4. Murakami, K. S. The X-ray crystal structure of _Escherichia coli_ RNA polymerase σ⁷⁰ holoenzyme. _J Biol Chem_ 288, 9126–9134 (2013).
-5. Revyakin, A., Liu, C., Ebright, R. H. & Strick, T. R. Abortive initiation and productive initiation by RNA polymerase involve DNA scrunching. _Science_ 314, 1139–1143 (2006).
-6. Kapanidis, A. N. _et al._ Initial transcription by RNA polymerase proceeds through a DNA-scrunching mechanism. _Science_ 314, 1144–1147 (2006).
-7. Murakami, K. S. Structural biology of bacterial RNA polymerase. _Biomolecules_ 5, 848–864 (2015).
-8. Yarnell, W. S. & Roberts, J. W. Mechanism of intrinsic transcription termination and antitermination. _Science_ 284, 611–615 (1999).
-9. You, L. _et al._ Structural basis for intrinsic transcription termination. _Nature_ 613, 783–789 (2023).
-10. Kang, J. Y. _et al._ Structural basis of transcription arrest by coliphage HK022 Nun in an _Escherichia coli_ RNA polymerase elongation complex. _Cell_ 169, 1234–1246 (2017).
-11. Erie, D. A., Hajiseyedjavadi, O., Young, M. C. & von Hippel, P. H. Multiple RNA polymerase conformations and GreA: control of the fidelity of transcription. _Science_ 262, 867–873 (1993).
-12. Bai, L., Shundrovsky, A. & Wang, M. D. Sequence-dependent kinetic model for transcription elongation by RNA polymerase. _J Mol Biol_ 344, 335–349 (2004).
-13. Sugimoto, N. _et al._ Thermodynamic parameters to predict stability of RNA/DNA hybrid duplexes. _Biochemistry_ 34, 11211–11216 (1995).
-14. Turner, D. H. & Mathews, D. H. NNDB: the nearest neighbor parameter database for predicting stability of nucleic acid secondary structure. _Nucleic Acids Res_ 38, D280–D282 (2010).
-15. Vassylyev, D. G. _et al._ Structural basis for transcription elongation by bacterial RNA polymerase. _Nature_ 448, 157–162 (2007).
+1. Santangelo, T. J. & Artsimovitch, I. Termination and antitermination: RNA polymerase runs a stop sign. _Nat Rev Microbiol_ 9, 319–329 (2011). doi:[10.1038/nrmicro2560](https://doi.org/10.1038/nrmicro2560)
+2. Larson, M. H., Greenleaf, W. J., Landick, R. & Block, S. M. Applied force reveals mechanistic and energetic details of transcription termination. _Cell_ 132, 971–982 (2008). doi:[10.1016/j.cell.2008.01.027](https://doi.org/10.1016/j.cell.2008.01.027)
+3. Nudler, E., Mustaev, A., Lukhtanov, E. & Goldfarb, A. The RNA-DNA hybrid maintains the register of transcription by preventing backtracking of RNA polymerase. _Cell_ 89, 33–41 (1997). doi:[10.1016/S0092-8674(00)80180-4](https://doi.org/10.1016/S0092-8674(00)80180-4)
+4. Murakami, K. S. The X-ray crystal structure of _Escherichia coli_ RNA polymerase σ⁷⁰ holoenzyme. _J Biol Chem_ 288, 9126–9134 (2013). doi:[10.1096/fasebj.27.1_supplement.547.2](https://doi.org/10.1096/fasebj.27.1_supplement.547.2)
+5. Revyakin, A., Liu, C., Ebright, R. H. & Strick, T. R. Abortive initiation and productive initiation by RNA polymerase involve DNA scrunching. _Science_ 314, 1139–1143 (2006). doi:[10.1126/science.1131398](https://doi.org/10.1126/science.1131398)
+6. Kapanidis, A. N. _et al._ Initial transcription by RNA polymerase proceeds through a DNA-scrunching mechanism. _Science_ 314, 1144–1147 (2006). doi:[10.1126/science.1131399](https://doi.org/10.1126/science.1131399)
+7. Murakami, K. S. Structural biology of bacterial RNA polymerase. _Biomolecules_ 5, 848–864 (2015). doi:[10.3390/biom5020848](https://doi.org/10.3390/biom5020848)
+8. Yarnell, W. S. & Roberts, J. W. Mechanism of intrinsic transcription termination and antitermination. _Science_ 284, 611–615 (1999). doi:[10.1126/science.284.5414.611](https://doi.org/10.1126/science.284.5414.611)
+9. You, L. _et al._ Structural basis for intrinsic transcription termination. _Nature_ 613, 783–789 (2023). doi:[10.1038/s41586-022-05604-1](https://doi.org/10.1038/s41586-022-05604-1)
+10. Kang, J. Y. _et al._ Structural basis of transcription elongation by _Escherichia coli_ RNA polymerase. _eLife_ 6:e25478 (2017). doi:[10.7554/eLife.25478](https://doi.org/10.7554/eLife.25478)
+11. Erie, D. A., Hajiseyedjavadi, O., Young, M. C. & von Hippel, P. H. Multiple RNA polymerase conformations and GreA: control of the fidelity of transcription. _Science_ 262, 867–873 (1993). doi:[10.1126/science.8235608](https://doi.org/10.1126/science.8235608)
+12. Bai, L., Shundrovsky, A. & Wang, M. D. Sequence-dependent kinetic model for transcription elongation by RNA polymerase. _J Mol Biol_ 344, 335–349 (2004). doi:[10.1016/j.jmb.2004.08.107](https://doi.org/10.1016/j.jmb.2004.08.107)
+13. Sugimoto, N. _et al._ Thermodynamic parameters to predict stability of RNA/DNA hybrid duplexes. _Biochemistry_ 34, 11211–11216 (1995). doi:[10.1021/bi00035a029](https://doi.org/10.1021/bi00035a029)
+14. Turner, D. H. & Mathews, D. H. NNDB: the nearest neighbor parameter database for predicting stability of nucleic acid secondary structure. _Nucleic Acids Res_ 38, D280–D282 (2010). doi:[10.1093/nar/gkp892](https://doi.org/10.1093/nar/gkp892)
+15. Vassylyev, D. G. _et al._ Structural basis for transcription elongation by bacterial RNA polymerase. _Nature_ 448, 157–162 (2007). doi:[10.1038/nature05932](https://doi.org/10.1038/nature05932)
 16. Rego, N. & Koes, D. 3Dmol.js: molecular visualization with WebGL. _Bioinformatics_ 31, 1322–1324 (2015). doi:[10.1093/bioinformatics/btu829](https://doi.org/10.1093/bioinformatics/btu829)
