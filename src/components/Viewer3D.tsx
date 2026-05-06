@@ -28,6 +28,7 @@ import {
   getSchematicHoverLabel,
   type PdbHoverAtom,
 } from "../render/pdbLabels";
+import { RenderOptionsButton } from "./RenderOptionsButton";
 import type { RenderOptions } from "./RenderOptionsButton";
 
 interface Viewer3DProps {
@@ -861,6 +862,10 @@ export function Viewer3D({ manifest, snapshot, mode, options, onOptionsChange, t
   return (
     <div className="viewer3d">
       <div ref={mountRef} className="viewer3d-canvas" />
+      {/* Render-mode picker — top-right of canvas, above the legend */}
+      <div className="viewer3d-render-btn">
+        <RenderOptionsButton options={options} onChange={onOptionsChange} />
+      </div>
       <div className="viewer3d-legend">
         {legendItems.map(item => {
           const hidden = hiddenItems.has(item.key);

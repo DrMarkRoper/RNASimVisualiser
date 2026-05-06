@@ -8,7 +8,6 @@ import { Viewer3D } from "./components/Viewer3D";
 import { LoadManifestDialog } from "./components/LoadManifestDialog";
 import { NewSimulationDialog, type NewSimMode } from "./components/NewSimulationDialog";
 import {
-  RenderOptionsButton,
   DEFAULT_RENDER_OPTIONS,
   computeRenderLabel,
   type RenderOptions,
@@ -285,7 +284,7 @@ export default function App() {
   if (manifestState.status === "loading") {
     return (
       <div className="app-splash">
-        <h1>RNASimVisualiser v.0.1</h1>
+        <h1>DNA to RNA Transcription Visualiser v.0.2</h1>
         <p>Loading simulation manifest…</p>
       </div>
     );
@@ -293,7 +292,7 @@ export default function App() {
   if (manifestState.status === "error") {
     return (
       <div className="app-splash error">
-        <h1>RNASimVisualiser v.0.1</h1>
+        <h1>DNA to RNA Transcription Visualiser v.0.2</h1>
         <p>
           Could not load <code>/snapshots.json</code>.
         </p>
@@ -345,17 +344,13 @@ export default function App() {
             `.header-meta` row to the right of the title; that meta moved
             into the Sim Data tab of the info panel (Run / Sequence / Base
             pairs blocks) so the header reads cleaner. */}
-        <h1>RNASimVisualiser v.0.1</h1>
+        <h1>DNA to RNA Transcription Visualiser v.0.2</h1>
         <div
           className="keys-hint"
           title="← →  step frame · Shift + ← →  step 10 · Space  play/pause · Home/End  jump"
         >
           ← → step · shift ± 10 · ␣ play
         </div>
-        <RenderOptionsButton
-          options={renderOptions}
-          onChange={setRenderOptions}
-        />
         <button
           type="button"
           className="theme-toggle"

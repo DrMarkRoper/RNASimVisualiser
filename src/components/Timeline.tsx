@@ -193,23 +193,37 @@ export function Timeline({
     };
   }, [playing, fps, frame, totalFrames, onFrame, onTogglePlay]);
 
+  // When playback reaches the last frame and stops, the play button becomes
+  // a "restart" button that resets the slider to frame 0 and starts playing.
+  const isAtEnd = !playing && frame >= totalFrames - 1;
+  const handlePlayClick = () => {
+    if (isAtEnd) {
+      onFrame(0);
+      onTogglePlay(); // currently paused → will start playing
+    } else {
+      onTogglePlay();
+    }
+  };
+
   return (
     <div className="timeline">
       <div className="timeline-header">
         <button
           type="button"
           className="play-btn"
-          onClick={onTogglePlay}
-          aria-label={playing ? "Pause" : "Play"}
+          onClick={handlePlayClick}
+          aria-label={playing ? "Pause" : isAtEnd ? "Restart" : "Play"}
+          title={isAtEnd ? "Restart from beginning" : undefined}
         >
-          {playing ? "❚❚" : "▶"}
+          {playing ? "❚❚" : isAtEnd ? "↺" : "▶"}
         </button>
 
         <div className="state-chips">
           <span
             className={
               "phase-chip" +
-              (currentSigma === "released" ? " phase-chip-disabled" : "")
+              (currentSigma === "released" ? " phase-chip-disabled" : "") +
+              (currentSigma === "w433_intercalated" ? " phase-chip-light-text" : "")
             }
             style={{ background: SIGMA_COLORS[currentSigma] }}
             title="σ⁷⁰ state"
@@ -217,7 +231,10 @@ export function Timeline({
             σ⁷⁰ {SIGMA_LABEL[currentSigma]}
           </span>
           <span
-            className="phase-chip"
+            className={
+              "phase-chip" +
+              (currentSnapshot.phase === "open_complex" ? " phase-chip-light-text" : "")
+            }
             style={{ background: PHASE_COLORS[currentSnapshot.phase] }}
             title="RNAP state"
           >
@@ -225,26 +242,31 @@ export function Timeline({
           </span>
         </div>
 
-        <div className="frame-readout">
-          frame {frame + 1} / {totalFrames}
-          {"  ·  t = "}
-          {currentSnapshot.time_s.toFixed(2)} s
-          {"  ·  +"}
-          {currentSnapshot.position}
-        </div>
+        {/* Right-aligned group — frame readout + fps control.  Grouping them
+            together with margin-left: auto means the readout position is
+            independent of the variable-width state chips on the left. */}
+        <div className="timeline-right-group">
+          <div className="frame-readout">
+            frame {frame + 1} / {totalFrames}
+            {"  ·  t = "}
+            {currentSnapshot.time_s.toFixed(2)} s
+            {"  ·  +"}
+            {currentSnapshot.position}
+          </div>
 
-        <label className="fps-control">
-          speed
-          <input
-            type="range"
-            min={1}
-            max={60}
-            step={1}
-            value={fps}
-            onChange={(e) => onFpsChange(Number(e.target.value))}
-          />
-          <span>{fps} fps</span>
-        </label>
+          <label className="fps-control">
+            speed
+            <input
+              type="range"
+              min={1}
+              max={60}
+              step={1}
+              value={fps}
+              onChange={(e) => onFpsChange(Number(e.target.value))}
+            />
+            <span>{fps} fps</span>
+          </label>
+        </div>
       </div>
 
       <div className="lane-group">
