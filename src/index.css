@@ -1293,8 +1293,8 @@ code, pre { font-family: var(--mono); }
 .new-sim-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
-  min-width: 140px;
+  right: 0;
+  min-width: 110px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -1743,6 +1743,23 @@ code, pre { font-family: var(--mono); }
 /* ------------------------------------------------------------------ */
 /* About tab                                                           */
 /* ------------------------------------------------------------------ */
+
+/* Inline button that looks like a link and switches info panel tab */
+.about-tab-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.about-tab-link:hover {
+  opacity: 0.8;
+}
 
 /* Placeholder text for the "Hi I'm Mark Roper…" section */
 .about-placeholder {

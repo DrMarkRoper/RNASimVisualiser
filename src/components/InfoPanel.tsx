@@ -79,7 +79,7 @@ export function InfoPanel({ manifest, snapshot, source, onLoadSimulation, onNewS
         aria-labelledby="info-tab-info"
         hidden={tab !== "info"}
       >
-        <InfoTab />
+        <InfoTab onSwitchTab={setTab} />
       </div>
       <div
         className="info-tab-body"
@@ -508,7 +508,7 @@ function SimDataTab({ manifest, snapshot, source, onLoadSimulation, onNewSimulat
 /* Info (stub)                                                        */
 /* ------------------------------------------------------------------ */
 
-function InfoTab() {
+function InfoTab({ onSwitchTab }: { onSwitchTab: (tab: InfoTab) => void }) {
   return (
     <>
       {/* ── About ──────────────────────────────────────────────── */}
@@ -517,10 +517,17 @@ function InfoTab() {
         <p>
           Hi, I'm Mark Roper. I've always been fascinated by genetics, but
           consistently struggled to just sit down with a textbook and learn
-          it, one chapter at a time. As a visual learner, I decided to build
-          this simulator to let me see the process of DNA to RNA one step at
+          it one chapter at a time. As a visual learner, I decided to build
+          this simulator to let me see the process of DNA to RNA, one step at
           a time, and from different levels of perspective (try adjusting the
-          render modes, and which elements are displayed — see Help). This is
+          render modes, and which elements are displayed — see{" "}
+          <button
+            type="button"
+            className="about-tab-link"
+            onClick={() => onSwitchTab("help")}
+          >
+            Help
+          </button>). This is
           not a scientifically accurate model, but I hope it gives an added
           perspective and viewpoint to those learning this amazing subject.
         </p>
@@ -998,7 +1005,16 @@ function HelpTab() {
       <section>
         <h3>Loading simulations</h3>
         <p>
-          Use the <em>Load</em> icon (📁) in the Sim Data tab to swap in a
+          Use the <em>Load</em> icon (
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
+            stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"
+            strokeLinejoin="round" style={{ display: "inline", verticalAlign: "middle" }}
+            aria-hidden="true">
+            <path d="M1.5 5.5h4l1 1.5h7.5v6.5h-12.5z" />
+            <line x1="8" y1="5" x2="8" y2="10" />
+            <polyline points="5.5,7 8,4.5 10.5,7" />
+          </svg>
+          ) in the Sim Data tab to swap in a
           different simulation manifest — either by pasting a URL or
           dragging a local <code>.json</code> file. Use <em>New ▾</em> to
           author a fresh run or clone the current one, then send it to a
