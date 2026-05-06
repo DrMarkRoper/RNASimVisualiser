@@ -264,7 +264,7 @@ export function LoadManifestDialog({
   return (
     <div
       className="modal-backdrop"
-      onMouseDown={(e) => {
+      onMouseDown={(_e) => {
         // Close when the user clicks the bare backdrop (outside the dialog).
         // The dialog itself stops mousedown propagation (below), so this
         // handler only fires for genuine outside clicks.

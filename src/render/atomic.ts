@@ -205,7 +205,7 @@ void residueKey;
  *                      free serial after emission
  */
 function emitStrand(
-  strand: "A" | "B",
+  _strand: "A" | "B",
   chainAt: string,
   backbone: BaseAxisPointPub[],
   resnames: string[],
