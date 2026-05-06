@@ -1,11 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The Python engine writes snapshots.json to the repo root.
-// We serve that directory statically during dev so the frontend
-// can fetch /snapshots.json without copying.
+// VITE_BASE_PATH is set by the GitHub Actions deploy workflow so that
+// asset paths resolve correctly when hosted at /repo-name/ on GitHub Pages.
+// During local dev the variable is unset and the app runs at /.
 export default defineConfig({
   plugins: [react()],
+  base: process.env.VITE_BASE_PATH ?? "/",
   publicDir: "public",
   server: {
     port: 5173,
