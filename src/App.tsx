@@ -52,7 +52,7 @@ export default function App() {
   const [newSimDialogOpen, setNewSimDialogOpen] = useState(false);
   const [newSimMode, setNewSimMode] = useState<NewSimMode>("create");
   // Track where the active manifest came from (filename, URL, or server URL).
-  const [manifestSource, setManifestSource] = useState<string>("snapshots.json");
+  const [manifestSource, setManifestSource] = useState<string>(`${import.meta.env.BASE_URL}snapshots.json`);
 
   // Measured width of the .app-main grid container.  Used to clamp the
   // resize drag so the user can shrink the viewer arbitrarily close to

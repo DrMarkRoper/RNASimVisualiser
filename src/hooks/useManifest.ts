@@ -28,7 +28,7 @@ export interface ManifestController {
  * during dev, and from the built site at runtime).
  */
 export function useManifest(
-  url: string = "/snapshots.json",
+  url: string = `${import.meta.env.BASE_URL}snapshots.json`,
 ): [ManifestState, ManifestController] {
   const [state, setState] = useState<ManifestState>({ status: "loading" });
   const [nonce, setNonce] = useState(0);
