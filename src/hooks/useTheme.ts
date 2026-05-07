@@ -25,12 +25,8 @@ function readInitialTheme(): Theme {
     // localStorage can throw in some sandboxes / private browsing —
     // fall through to the media-query default.
   }
-  if (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-color-scheme: light)").matches
-  ) {
-    return "light";
-  }
+  // Always default to dark regardless of OS preference — the user can
+  // toggle to light via the theme button and that choice will be persisted.
   return "dark";
 }
 
